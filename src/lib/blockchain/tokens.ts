@@ -89,7 +89,7 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
     decimals: 6,
     address: "0x3600000000000000000000000000000000000000",
     logoUrl: "/tokens/usdc.svg",
-    isNative: true, // USDC is the native gas token on Arc — use sendTransaction not ERC-20 transfer
+    isNative: true,
   },
   EURC: {
     symbol: "EURC",

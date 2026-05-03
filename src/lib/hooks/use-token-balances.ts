@@ -1,6 +1,9 @@
 // ============================================================
 // lib/hooks/use-token-balances.ts
-// TanStack Query hook to fetch on-chain token balances
+// Arc Testnet: USDC is native gas token
+// eth_getBalance returns 18-decimal wei
+// USDC ERC-20 interface uses 6 decimals
+// We store balance in 6-decimal units for consistent display
 // ============================================================
 
 import { useQuery } from "@tanstack/react-query";
@@ -18,9 +21,20 @@ async function fetchTokenBalances(address: string): Promise<TokenBalance[]> {
     try {
       let balance: bigint;
 
-      if (token.isNative) {
-        balance = await client.getBalance({ address: address as Address });
+      if (token.symbol === "USDC") {
+        // Arc: USDC native balance comes back as 18-decimal wei
+        // Convert to 6-decimal units: divide by 10^12
+        const rawBalance = await client.getBalance({ address: address as Address });
+        balance = rawBalance / BigInt(10 ** 12);
+      } else if (token.symbol === "ETH") {
+        // ETH slot also shows native balance — same conversion
+        const rawBalance = await client.getBalance({ address: address as Address });
+        balance = rawBalance / BigInt(10 ** 12);
+      } else if (token.isNative) {
+        const rawBalance = await client.getBalance({ address: address as Address });
+        balance = rawBalance / BigInt(10 ** 12);
       } else {
+        // Standard ERC-20 (EURC etc.) — already in correct decimals
         balance = (await client.readContract({
           address: token.address as Address,
           abi: ERC20_ABI,
@@ -37,7 +51,7 @@ async function fetchTokenBalances(address: string): Promise<TokenBalance[]> {
     } catch {
       results.push({
         token,
-        balance: 0n,
+        balance: BigInt(0),
         formatted: "0",
       });
     }
@@ -53,7 +67,7 @@ export function useTokenBalances() {
     queryKey: ["tokenBalances", address],
     queryFn: () => fetchTokenBalances(address!),
     enabled: isConnected && !!address,
-    refetchInterval: 15_000, // every 15s
+    refetchInterval: 15_000,
     staleTime: 10_000,
     select: (data) => {
       const map = {} as Record<TokenSymbol, TokenBalance>;
