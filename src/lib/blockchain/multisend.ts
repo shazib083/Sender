@@ -163,14 +163,15 @@ export async function executeBatch(
     // FIX 1: STRICT BIGINT CONVERSION
     // =========================================================
     const amounts: bigint[] = tokenRows.map((r) => {
-      const cleaned = r.amount?.toString().trim();
+  const cleaned = r.amount?.toString().trim();
 
-      if (!cleaned || isNaN(Number(cleaned))) {
-        throw new Error(`Invalid amount: ${r.amount}`);
-      }
+  if (!cleaned) {
+    throw new Error("Invalid amount input");
+  }
 
-      return parseTokenAmount(cleaned, token.decimals);
-    });
+  // 🧪 TEST MODE: bypass decimal conversion
+  return BigInt(cleaned);
+});
 
     const total = amounts.reduce((a, b) => a + b, 0n);
 
