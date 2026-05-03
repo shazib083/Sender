@@ -166,22 +166,26 @@ export async function executeBatch(
     // ✅ FIXED SAFE BIGINT CONVERSION (NO raw BigInt("0.001"))
     // =========================================================
     const amounts: bigint[] = tokenRows.map((r) => {
-      const cleanAmount = String(r.amount ?? "").trim();
+  const value = String(r.amount ?? "").trim();
 
-      if (!cleanAmount) {
-        throw new Error("Empty amount detected");
-      }
+  if (!value) throw new Error("Empty amount");
 
-      const parsed = parseTokenAmount(cleanAmount, token.decimals);
+  // 🔥 HARD FIX: normalize float → bigint safely
+  const normalized = Number(value);
 
-      if (typeof parsed !== "bigint") {
-        throw new Error(`Invalid amount: ${cleanAmount}`);
-      }
+  if (isNaN(normalized) || normalized <= 0) {
+    throw new Error(`Invalid amount: ${value}`);
+  }
 
-      return parsed;
-    });
+  // Arc USDC = 6 decimals
+  const decimals = token.decimals;
+
+  return BigInt(Math.floor(normalized * 10 ** decimals));
+});
 
     const total = amounts.reduce((a, b) => a + b, 0n);
+    
+    console.log("🔥 TOTAL RAW VALUE:", total.toString());
 
     console.log("RECIPIENTS:", recipients);
     console.log("AMOUNTS:", amounts.map(String));
