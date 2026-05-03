@@ -21,20 +21,18 @@ async function fetchTokenBalances(address: string): Promise<TokenBalance[]> {
     try {
       let balance: bigint;
 
-      if (token.symbol === "USDC") {
-        // Arc: USDC native balance comes back as 18-decimal wei
-        // Convert to 6-decimal units: divide by 10^12
-        const rawBalance = await client.getBalance({ address: address as Address });
-        balance = rawBalance / BigInt(10 ** 12);
-      } else if (token.symbol === "ETH") {
-        // ETH slot also shows native balance — same conversion
-        const rawBalance = await client.getBalance({ address: address as Address });
-        balance = rawBalance / BigInt(10 ** 12);
-      } else if (token.isNative) {
-        const rawBalance = await client.getBalance({ address: address as Address });
-        balance = rawBalance / BigInt(10 ** 12);
+      if (token.isNative) {
+        // ✅ Native always comes in 18 decimals → convert to token.decimals (UI)
+        const raw = await client.getBalance({ address: address as Address });
+
+        const nativeDecimals = 18;
+        const diff = nativeDecimals - token.decimals;
+
+        if (diff < 0) throw new Error("Invalid decimal config");
+
+        balance = raw / BigInt(10 ** diff);
       } else {
-        // Standard ERC-20 (EURC etc.) — already in correct decimals
+        // ✅ ERC20 already correct decimals
         balance = (await client.readContract({
           address: token.address as Address,
           abi: ERC20_ABI,
