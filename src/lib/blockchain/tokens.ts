@@ -1,10 +1,50 @@
 // ============================================================
-// lib/blockchain/tokens.ts (FIXED)
+// lib/blockchain/tokens.ts
+// FIXED EXPORT VERSION (SUPPORTED_TOKENS GUARANTEED)
 // ============================================================
 
 import { type Token, type TokenSymbol } from "@/types";
 
-export const ERC20_ABI = [/* unchanged - same as yours */] as const;
+// ---------------- ERC20 ABI ----------------
+export const ERC20_ABI = [
+  {
+    name: "balanceOf",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "allowance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "approve",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "transfer",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "value", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
 
 // ---------------- TOKEN REGISTRY ----------------
 export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
@@ -28,7 +68,7 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
   },
   ETH: {
     symbol: "ETH",
-    name: "ARC Native",
+    name: "Arc Native",
     decimals: 6,
     address: "",
     logoUrl: "/tokens/eth.svg",
@@ -36,27 +76,35 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
   },
 };
 
-// ---------------- FIXED PARSER ----------------
-export function parseTokenAmount(amount: string, decimals: number): bigint {
-  if (!amount || amount === "." || amount === "") return 0n;
+// ---------------- THIS IS THE FIX ----------------
+// MUST exist or build breaks
+export const SUPPORTED_TOKENS: Token[] = Object.values(TOKEN_REGISTRY);
 
-  const [whole, fraction = ""] = amount.split(".");
-
-  const wholeBN = BigInt(whole || "0");
-
-  const padded = (fraction + "0".repeat(decimals)).slice(0, decimals);
-
-  const fractionBN = BigInt(padded || "0");
-
-  const base = BigInt(10) ** BigInt(decimals);
-
-  return wholeBN * base + fractionBN;
+// ---------------- HELPERS ----------------
+export function getToken(symbol: TokenSymbol): Token {
+  return TOKEN_REGISTRY[symbol];
 }
 
-export function formatTokenAmount(amount: bigint, decimals: number): string {
-  const base = BigInt(10) ** BigInt(decimals);
+export function parseTokenAmount(amount: string, decimals: number): bigint {
+  if (!amount) return BigInt(0);
+
+  const [whole, decimal = ""] = amount.split(".");
+  const padded = decimal.padEnd(decimals, "0").slice(0, decimals);
+
+  return BigInt(whole || "0") * BigInt(10 ** decimals) + BigInt(padded || "0");
+}
+
+export function formatTokenAmount(
+  amount: bigint,
+  decimals: number,
+  precision = 6
+): string {
+  const base = BigInt(10 ** decimals);
   const whole = amount / base;
   const fraction = amount % base;
 
-  return fraction === 0n ? whole.toString() : `${whole}.${fraction}`;
+  const fractionStr = fraction.toString().padStart(decimals, "0").slice(0, precision);
+  const trimmed = fractionStr.replace(/0+$/, "");
+
+  return trimmed ? `${whole}.${trimmed}` : whole.toString();
 }
