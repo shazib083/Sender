@@ -1,21 +1,10 @@
 // ============================================================
 // lib/blockchain/multisend.ts
-// Arc Testnet batch execution
-//
-// USDC is the native gas token on Arc:
-//   - User inputs in 6 decimals
-//   - sendTransaction value needs 18-decimal wei → multiply by 10^12
-//   - Arc requires maxFeePerGas >= 160 Gwei
-//
-// EURC is standard ERC-20:
-//   - Uses 6-decimal amounts directly
-//   - Requires approve + multisendToken
+// FIXED VERSION (MATCHES YOUR CONTRACT)
 // ============================================================
 
 import {
   type Address,
-  zeroAddress,
-  parseGwei,
 } from "viem";
 
 import {
@@ -39,59 +28,15 @@ import {
 } from "@/types";
 
 // ---- Arc gas config ----
+import { parseGwei } from "viem";
+
 const ARC_MAX_FEE_PER_GAS = parseGwei("200");
 const ARC_MAX_PRIORITY_FEE = parseGwei("1");
 
-// ---- Arc native USDC decimal conversion ----
-// sendTransaction value needs 18-decimal wei
-// User inputs in 6 decimals → multiply by 10^12
-const WEI_MULTIPLIER = BigInt(10 ** 12);
-
-function toWei(amount6: bigint): bigint {
-  return amount6 * WEI_MULTIPLIER;
-}
-
-// ---- Contract ABIs ----
+// ---- CONTRACT ABI (FIXED) ----
 export const MULTISEND_ABI = [
   {
-    name: "multisendToken",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "recipients", type: "address[]" },
-      { name: "amounts", type: "uint256[]" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "multisendNative",
-    type: "function",
-    stateMutability: "payable",
-    inputs: [
-      { name: "recipients", type: "address[]" },
-      { name: "amounts", type: "uint256[]" },
-    ],
-    outputs: [],
-  },
-] as const;
-
-const NATIVE_ABI = [
-  {
-    name: "multisendNative",
-    type: "function",
-    stateMutability: "payable",
-    inputs: [
-      { name: "recipients", type: "address[]" },
-      { name: "amounts", type: "uint256[]" },
-    ],
-    outputs: [],
-  },
-] as const;
-
-const TOKEN_ABI = [
-  {
-    name: "multisendToken",
+    name: "multisend",
     type: "function",
     stateMutability: "nonpayable",
     inputs: [
@@ -103,20 +48,20 @@ const TOKEN_ABI = [
   },
 ] as const;
 
-export const MULTISEND_CONTRACT_ADDRESS =
-  (process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined) ??
-  zeroAddress;
+// ---- ENV (STRICT) ----
+const addr = process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined;
+
+if (!addr) {
+  throw new Error("❌ MULTISEND CONTRACT ADDRESS NOT SET");
+}
+
+export const MULTISEND_CONTRACT_ADDRESS = addr;
 
 export const MAX_BATCH_SIZE = 200;
 
 // ---- Gas estimation ----
 export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
-  let total = BigInt(0);
-  for (const r of rows) {
-    const token = TOKEN_REGISTRY[r.tokenSymbol];
-    total += token.isNative ? BigInt(50000) : BigInt(90000);
-  }
-  return total;
+  return BigInt(rows.length) * BigInt(90000);
 }
 
 // ---- Validation ----
@@ -152,10 +97,12 @@ export async function validateBatch(
 
   for (const [symbol, total] of Object.entries(totals)) {
     const balance = balances[symbol as TokenSymbol] ?? BigInt(0);
+
     if (total > balance) {
       const token = TOKEN_REGISTRY[symbol as TokenSymbol];
       const needed = formatTokenAmount(total, token.decimals);
       const have = formatTokenAmount(balance, token.decimals);
+
       rows
         .filter((r) => r.tokenSymbol === symbol && !errors[r.id])
         .forEach((r) => {
@@ -167,7 +114,7 @@ export async function validateBatch(
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
-// ---- Core batch execution ----
+// ---- Core execution ----
 export async function executeBatch(
   rows: RecipientRow[],
   onProgress: (rowId: string, status: RowStatus, txHash?: string) => void
@@ -188,148 +135,70 @@ export async function executeBatch(
 
   for (const [symbol, tokenRows] of Object.entries(grouped)) {
     const token = TOKEN_REGISTRY[symbol as TokenSymbol];
+
     const recipients = tokenRows.map((r) => r.address as Address);
 
-    const amounts6: bigint[] = tokenRows.map((r) => {
+    const amounts: bigint[] = tokenRows.map((r) => {
       const value = String(r.amount ?? "").trim();
       if (!value) throw new Error("Empty amount");
-      return parseTokenAmount(value, token.decimals);
+      return parseTokenAmount(value, token.decimals); // ✅ 6 decimals
     });
 
-    let txHash: `0x${string}`;
+    const total = amounts.reduce((a, b) => a + b, BigInt(0));
 
-    // =========================================================
-    // NATIVE PATH — USDC on Arc
-    // sendTransaction needs 18-decimal wei → multiply by 10^12
-    // =========================================================
-    if (token.isNative) {
-      const amountsWei = amounts6.map((a) => toWei(a));
-      const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
+    // ---- APPROVAL ----
+    const allowance = (await publicClient.readContract({
+      address: token.address as Address,
+      abi: ERC20_ABI,
+      functionName: "allowance",
+      args: [account, MULTISEND_CONTRACT_ADDRESS],
+    })) as bigint;
 
-      if (MULTISEND_CONTRACT_ADDRESS !== zeroAddress) {
-        txHash = await walletClient.writeContract({
-          address: MULTISEND_CONTRACT_ADDRESS,
-          abi: NATIVE_ABI,
-          functionName: "multisendNative",
-          args: [recipients, amountsWei],
-          account,
-          chain: arcTestnet,
-          value: totalWei,
-          maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-          maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-        });
-      } else {
-        // Sequential native sends
-        let lastNativeTx: `0x${string}` = "0x";
-        let allSuccess = true;
+    if (allowance < total) {
+      const approveTx = await walletClient.writeContract({
+        address: token.address as Address,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [MULTISEND_CONTRACT_ADDRESS, total],
+        account,
+        chain: arcTestnet,
+        maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+        maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+      });
 
-        for (let i = 0; i < recipients.length; i++) {
-          try {
-            const nativeTx = await walletClient.sendTransaction({
-              to: recipients[i],
-              value: amountsWei[i],
-              account,
-              chain: arcTestnet,
-              maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-              maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-            });
-            const receipt = await publicClient.waitForTransactionReceipt({
-              hash: nativeTx,
-            });
-            const status: RowStatus =
-              receipt.status === "success" ? "success" : "failed";
-            onProgress(tokenRows[i].id, status, nativeTx);
-            lastNativeTx = nativeTx;
-            if (status === "failed") allSuccess = false;
-          } catch (err) {
-            console.error(`Native send failed for row ${tokenRows[i].id}:`, err);
-            onProgress(tokenRows[i].id, "failed");
-            allSuccess = false;
-          }
-        }
-
-        return { txHash: lastNativeTx, success: allSuccess };
-      }
+      await publicClient.waitForTransactionReceipt({ hash: approveTx });
     }
 
-    // =========================================================
-    // ERC-20 PATH — EURC
-    // Uses 6-decimal amounts directly
-    // =========================================================
-    else {
-      const total6 = amounts6.reduce((a, b) => a + b, BigInt(0));
+    // ---- SIMULATION (CRITICAL) ----
+    await publicClient.simulateContract({
+      address: MULTISEND_CONTRACT_ADDRESS,
+      abi: MULTISEND_ABI,
+      functionName: "multisend",
+      args: [token.address as Address, recipients, amounts],
+      account,
+    });
 
-      if (MULTISEND_CONTRACT_ADDRESS !== zeroAddress) {
-        const allowance = (await publicClient.readContract({
-          address: token.address as Address,
-          abi: ERC20_ABI,
-          functionName: "allowance",
-          args: [account, MULTISEND_CONTRACT_ADDRESS],
-        })) as bigint;
-
-        if (allowance < total6) {
-          const approveTx = await walletClient.writeContract({
-            address: token.address as Address,
-            abi: ERC20_ABI,
-            functionName: "approve",
-            args: [MULTISEND_CONTRACT_ADDRESS, total6],
-            account,
-            chain: arcTestnet,
-            maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-            maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-          });
-          await publicClient.waitForTransactionReceipt({ hash: approveTx });
-        }
-
-        txHash = await walletClient.writeContract({
-          address: MULTISEND_CONTRACT_ADDRESS,
-          abi: TOKEN_ABI,
-          functionName: "multisendToken",
-          args: [token.address as Address, recipients, amounts6],
-          account,
-          chain: arcTestnet,
-          maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-          maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-        });
-      } else {
-        // Sequential ERC-20 transfers
-        let lastErcTx: `0x${string}` = "0x";
-        let allSuccess = true;
-
-        for (let i = 0; i < recipients.length; i++) {
-          try {
-            const ercTx = await walletClient.writeContract({
-              address: token.address as Address,
-              abi: ERC20_ABI,
-              functionName: "transfer",
-              args: [recipients[i], amounts6[i]],
-              account,
-              chain: arcTestnet,
-              maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-              maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-            });
-            const receipt = await publicClient.waitForTransactionReceipt({
-              hash: ercTx,
-            });
-            const status: RowStatus =
-              receipt.status === "success" ? "success" : "failed";
-            onProgress(tokenRows[i].id, status, ercTx);
-            lastErcTx = ercTx;
-            if (status === "failed") allSuccess = false;
-          } catch (err) {
-            console.error(`ERC-20 transfer failed for row ${tokenRows[i].id}:`, err);
-            onProgress(tokenRows[i].id, "failed");
-            allSuccess = false;
-          }
-        }
-
-        return { txHash: lastErcTx, success: allSuccess };
-      }
-    }
+    // ---- EXECUTION ----
+    const txHash = await walletClient.writeContract({
+      address: MULTISEND_CONTRACT_ADDRESS,
+      abi: MULTISEND_ABI,
+      functionName: "multisend",
+      args: [token.address as Address, recipients, amounts],
+      account,
+      chain: arcTestnet,
+      maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+      maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+    });
 
     lastTx = txHash;
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-    const status: RowStatus = receipt.status === "success" ? "success" : "failed";
+
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+    });
+
+    const status: RowStatus =
+      receipt.status === "success" ? "success" : "failed";
+
     tokenRows.forEach((r) => onProgress(r.id, status, txHash));
   }
 
@@ -356,6 +225,7 @@ export async function getTransactionReceipt(
     const receipt = await client.getTransactionReceipt({
       hash: txHash as `0x${string}`,
     });
+
     return {
       status: receipt.status === "success" ? "confirmed" : "failed",
       blockNumber: Number(receipt.blockNumber),
