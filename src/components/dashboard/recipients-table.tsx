@@ -15,7 +15,7 @@ import { parseCsv, generateTemplate } from "@/lib/utils/csv";
 import { sanitizeCsvInput, isValidEthAddress, sanitizeAmountInput, clampAmountDecimals } from "@/lib/utils/validation";
 import { TOKEN_REGISTRY } from "@/lib/blockchain/tokens";
 import { CsvPasteModal } from "./csv-paste-modal";
-import type { TokenSymbol } from "@/types";
+import type { TokenSymbol, RecipientRow } from "@/types";
 import toast from "react-hot-toast";
 
 const MAX_ROWS = 200;
@@ -124,7 +124,7 @@ export function RecipientsTable() {
               exit={{ opacity: 0, x: -16, height: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <RecipientRow
+              <RecipientRowItem
                 row={row}
                 index={idx}
                 onUpdate={(updates) => updateRow(row.id, updates)}
@@ -162,15 +162,15 @@ export function RecipientsTable() {
 }
 
 // ---- Single row ----
-interface RecipientRowProps {
-  row: ReturnType<typeof useBatchStore.getState>["rows"][0];
+interface RecipientRowItemProps {
+  row: RecipientRow;
   index: number;
-  onUpdate: (updates: Partial<typeof row>) => void;
+  onUpdate: (updates: Partial<RecipientRow>) => void;
   onRemove: () => void;
   isOnlyRow: boolean;
 }
 
-function RecipientRow({ row, index, onUpdate, onRemove, isOnlyRow }: RecipientRowProps) {
+function RecipientRowItem({ row, index, onUpdate, onRemove, isOnlyRow }: RecipientRowItemProps) {
   const isAddressInvalid =
     row.address.length > 0 && !isValidEthAddress(row.address);
   const token = TOKEN_REGISTRY[row.tokenSymbol];
