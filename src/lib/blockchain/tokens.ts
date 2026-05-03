@@ -41,11 +41,16 @@ export const ERC20_ABI = [
 export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
   USDC: {
     symbol: "USDC",
-    name: "USD Coin (Arc Native)",
+    name: "USD Coin",
     decimals: 6,
-    address: "native",
+
+    // ✅ MUST be real contract address OR empty if truly native
+    address: "0x3600000000000000000000000000000000000000",
+
     logoUrl: "/tokens/usdc.svg",
-    isNative: true, // ✅ IMPORTANT FIX
+
+    // ❗ IMPORTANT: treat as ERC20, NOT native
+    isNative: false,
   },
 
   EURC: {
