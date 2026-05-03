@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
-import { metaMask, walletConnect } from "wagmi/connectors";
-import { Wallet, ChevronDown, LogOut, Copy, Check, ExternalLink, AlertTriangle } from "lucide-react";
+import { Wallet, ChevronDown, LogOut, Copy, Check, ExternalLink, AlertTriangle, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/utils";
@@ -18,6 +18,24 @@ export function WalletConnectButton() {
   const { switchChain } = useSwitchChain();
   const [copied, setCopied] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure portal only renders client-side
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (showModal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [showModal]);
 
   const isWrongNetwork = isConnected && chainId !== arcTestnet.id;
 
@@ -29,6 +47,98 @@ export function WalletConnectButton() {
     toast.success("Address copied");
   };
 
+  // ---- Modal rendered via Portal directly on document.body ----
+  const modal =
+    mounted && showModal
+      ? createPortal(
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 99999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(0,0,0,0.7)",
+              backdropFilter: "blur(4px)",
+            }}
+            onClick={() => setShowModal(false)}
+          >
+            <div
+              style={{ position: "relative" }}
+              className="w-full max-w-sm mx-4 rounded-2xl border border-surface-400 bg-surface-100 p-6 shadow-2xl animate-slide-up"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close button */}
+              <button
+                onClick={() => setShowModal(false)}
+                className="absolute top-4 right-4 rounded-lg p-1.5 text-gray-500 hover:bg-surface-300 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              <h2 className="mb-1 text-lg font-semibold text-white">Connect Wallet</h2>
+              <p className="mb-5 text-sm text-gray-400">Choose your preferred wallet provider</p>
+
+              <div className="flex flex-col gap-3">
+                {/* MetaMask */}
+                <button
+                  onClick={() => {
+                    const mm = connectors.find(
+                      (c) => c.name === "MetaMask" || c.name === "Injected"
+                    );
+                    connect({ connector: mm ?? connectors[0] });
+                    setShowModal(false);
+                  }}
+                  className="flex items-center gap-3 rounded-xl border border-surface-400 bg-surface-200 p-3.5 text-sm text-gray-200 hover:border-brand-500 hover:bg-surface-300 transition-all text-left"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-500/20">
+                    <svg viewBox="0 0 35 33" className="h-5 w-5" fill="none">
+                      <path d="M32.9 1L19.5 10.6l2.4-5.7L32.9 1z" fill="#E17726" stroke="#E17726" strokeWidth=".25" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M2.1 1l13.3 9.7-2.3-5.8L2.1 1z" fill="#E27625" stroke="#E27625" strokeWidth=".25" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="font-medium text-white">MetaMask</div>
+                    <div className="text-xs text-gray-500">Browser extension wallet</div>
+                  </div>
+                </button>
+
+                {/* WalletConnect */}
+                <button
+                  onClick={() => {
+                    const wc = connectors.find((c) => c.name === "WalletConnect");
+                    if (wc) {
+                      connect({ connector: wc });
+                      setShowModal(false);
+                    } else {
+                      toast.error("Add NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to env vars");
+                    }
+                  }}
+                  className="flex items-center gap-3 rounded-xl border border-surface-400 bg-surface-200 p-3.5 text-sm text-gray-200 hover:border-brand-500 hover:bg-surface-300 transition-all text-left"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600">
+                    <svg viewBox="0 0 300 185" className="h-5 w-5" fill="white">
+                      <path d="M61.4 36.3C110.3-8.4 188.6-8.4 237.6 36.3L243.1 41.6C245.6 43.9 245.6 47.6 243.1 49.8L224.3 67.7C223 68.8 221 68.8 219.8 67.7L212.1 60.4C178 28.6 121 28.6 86.9 60.4L78.6 68.2C77.4 69.3 75.4 69.3 74.2 68.2L55.3 50.3C52.8 48 52.8 44.3 55.3 42.1L61.4 36.3ZM279.3 74.4L296.2 90.3C298.7 92.6 298.7 96.3 296.2 98.6L222.4 168.1C219.9 170.3 215.9 170.3 213.5 168.1L161 118.7C160.4 118.1 159.4 118.1 158.8 118.7L106.3 168.1C103.9 170.3 99.8 170.3 97.4 168.1L23.6 98.6C21.1 96.3 21.1 92.6 23.6 90.3L40.5 74.4C43 72.1 47 72.1 49.4 74.4L101.9 123.8C102.5 124.3 103.5 124.3 104.2 123.8L156.6 74.4C159.1 72.1 163.1 72.1 165.6 74.4L218 123.8C218.7 124.3 219.7 124.3 220.3 123.8L272.8 74.4C275.2 72.1 279.2 72.1 279.3 74.4Z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="font-medium text-white">WalletConnect</div>
+                    <div className="text-xs text-gray-500">QR code or mobile wallet</div>
+                  </div>
+                </button>
+              </div>
+
+              <p className="mt-4 text-center text-xs text-gray-600">
+                By connecting, you agree to our Terms of Service
+              </p>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  // ---- Not connected ----
   if (!isConnected) {
     return (
       <>
@@ -41,67 +151,12 @@ export function WalletConnectButton() {
           <Wallet className="h-4 w-4" />
           Connect Wallet
         </Button>
-
-        {showModal && (
-        <div
-          style={{ position: "fixed", inset: 0, zIndex: 9999 }}
-          className="flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setShowModal(false)}
-        >
-        <div
-          style={{ position: "relative", zIndex: 10000 }}
-          className="w-full max-w-sm rounded-2xl border border-surface-400 bg-surface-100 p-6 shadow-2xl animate-slide-up mx-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-              <h2 className="mb-1 text-lg font-semibold text-white">Connect Wallet</h2>
-              <p className="mb-5 text-sm text-gray-400">Choose your preferred wallet provider</p>
-
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={() => {
-                    const mm = connectors.find((c) => c.name === "MetaMask" || c.name === "Injected");
-                    connect({ connector: mm ?? connectors[0] });
-                    setShowModal(false);
-                  }}
-                  className="flex items-center gap-3 rounded-xl border border-surface-400 bg-surface-200 p-3.5 text-sm text-gray-200 hover:border-brand-500 hover:bg-surface-300 transition-all"
-                >
-                  <img src="/metamask.svg" alt="MetaMask" className="h-8 w-8" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                  <div className="text-left">
-                    <div className="font-medium text-white">MetaMask</div>
-                    <div className="text-xs text-gray-500">Browser extension wallet</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => {
-                    const wc = connectors.find((c) => c.name === "WalletConnect");
-                    if (wc) { connect({ connector: wc }); setShowModal(false); }
-                    else { alert("WalletConnect not configured. Add NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to .env.local"); }
-                  }}
-                  className="flex items-center gap-3 rounded-xl border border-surface-400 bg-surface-200 p-3.5 text-sm text-gray-200 hover:border-brand-500 hover:bg-surface-300 transition-all"
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600">
-                    <svg viewBox="0 0 300 185" className="h-5 w-5" fill="white">
-                      <path d="M61.4385 36.2562C110.349 -8.42027 188.643 -8.42027 237.553 36.2562L243.142 41.582C245.592 43.862 245.592 47.568 243.142 49.848L224.254 67.674C223.029 68.814 221.026 68.814 219.801 67.674L212.117 60.43C178.014 28.5502 120.978 28.5502 86.875 60.43L78.6376 68.154C77.4126 69.294 75.4097 69.294 74.1847 68.154L55.2963 50.328C52.8465 48.048 52.8465 44.342 55.2963 42.062L61.4385 36.2562ZM279.304 74.3729L296.236 90.312C298.686 92.592 298.686 96.298 296.236 98.578L222.427 168.067C219.977 170.347 215.971 170.347 213.521 168.067L161.026 118.668C160.414 118.098 159.412 118.098 158.8 118.668L106.305 168.067C103.855 170.347 99.8494 170.347 97.3995 168.067L23.5904 98.578C21.1406 96.298 21.1406 92.592 23.5904 90.312L40.5222 74.3729C42.972 72.0929 46.9779 72.0929 49.4277 74.3729L101.924 123.772C102.536 124.342 103.538 124.342 104.15 123.772L156.645 74.3729C159.095 72.0929 163.101 72.0929 165.551 74.3729L218.047 123.772C218.659 124.342 219.661 124.342 220.273 123.772L272.769 74.3729C275.218 72.0929 279.224 72.0929 279.304 74.3729Z" />
-                    </svg>
-                  </div>
-                  <div className="text-left">
-                    <div className="font-medium text-white">WalletConnect</div>
-                    <div className="text-xs text-gray-500">QR code or mobile wallet</div>
-                  </div>
-                </button>
-              </div>
-
-              <p className="mt-4 text-center text-xs text-gray-600">
-                By connecting, you agree to our Terms of Service
-              </p>
-            </div>
-          </div>
-        )}
+        {modal}
       </>
     );
   }
 
+  // ---- Wrong network ----
   if (isWrongNetwork) {
     return (
       <Button
@@ -115,6 +170,7 @@ export function WalletConnectButton() {
     );
   }
 
+  // ---- Connected ----
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -133,20 +189,28 @@ export function WalletConnectButton() {
         >
           <div className="px-3 py-2 border-b border-surface-300 mb-1">
             <p className="text-xs text-gray-500">Connected to Arc Testnet</p>
-            <p className="font-mono text-sm text-white mt-0.5">{truncateAddress(address ?? "", 6)}</p>
+            <p className="font-mono text-sm text-white mt-0.5">
+              {truncateAddress(address ?? "", 6)}
+            </p>
           </div>
 
           <DropdownMenu.Item
             className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 outline-none hover:bg-surface-300 hover:text-white"
             onClick={handleCopy}
           >
-            {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+            {copied ? (
+              <Check className="h-4 w-4 text-emerald-400" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
             Copy address
           </DropdownMenu.Item>
 
           <DropdownMenu.Item
             className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 outline-none hover:bg-surface-300 hover:text-white"
-            onClick={() => window.open(getExplorerAddressUrl(address ?? ""), "_blank")}
+            onClick={() =>
+              window.open(getExplorerAddressUrl(address ?? ""), "_blank")
+            }
           >
             <ExternalLink className="h-4 w-4" />
             View on explorer
