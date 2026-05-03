@@ -1,6 +1,5 @@
 // ============================================================
-// lib/blockchain/multisend.ts
-// FINAL FIXED VERSION (EXPORTS + STABLE BUILD)
+// lib/blockchain/multisend.ts (FIXED STABLE EXECUTION VERSION)
 // ============================================================
 
 import {
@@ -35,12 +34,7 @@ import {
 const ARC_MAX_FEE_PER_GAS = parseGwei("200");
 const ARC_MAX_PRIORITY_FEE = parseGwei("1");
 
-// ---------------- CONTRACT ADDRESS ----------------
-export const MULTISEND_CONTRACT_ADDRESS =
-  (process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined) ??
-  zeroAddress;
-
-// ---------------- ABI ----------------
+// ---------------- CONTRACT ABI ----------------
 export const MULTISEND_ABI = [
   {
     name: "multisendToken",
@@ -68,50 +62,80 @@ export const MULTISEND_ABI = [
 const NATIVE_ABI = [MULTISEND_ABI[1]];
 const TOKEN_ABI = [MULTISEND_ABI[0]];
 
+// ---------------- CONFIG ----------------
+export const MULTISEND_CONTRACT_ADDRESS =
+  (process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined) ??
+  zeroAddress;
+
 export const MAX_BATCH_SIZE = 200;
+
+// ============================================================
+// GAS ESTIMATION
+// ============================================================
+export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
+  const grouped = groupRowsByToken(rows);
+  let total = BigInt(0);
+
+  for (const [symbol, tokenRows] of Object.entries(grouped)) {
+    const token = TOKEN_REGISTRY[symbol as TokenSymbol];
+    const per = token.isNative ? BigInt(50000) : BigInt(90000);
+    total += per * BigInt(tokenRows.length);
+  }
+
+  return total;
+}
 
 // ============================================================
 // VALIDATION
 // ============================================================
+export interface ValidationResult {
+  valid: boolean;
+  errors: Record<string, string>;
+}
+
 export async function validateBatch(
   rows: RecipientRow[],
   walletAddress: string,
   balances: Record<TokenSymbol, bigint>
-) {
+): Promise<ValidationResult> {
   const errors: Record<string, string> = {};
-  const totals: Record<string, bigint> = {};
+  const totals: Record<TokenSymbol, bigint> = {} as any;
 
   for (const row of rows) {
     const token = TOKEN_REGISTRY[row.tokenSymbol];
 
+    if (!row.address || !/^0x[0-9a-fA-F]{40}$/.test(row.address)) {
+      errors[row.id] = "Invalid address";
+      continue;
+    }
+
     const amount = parseTokenAmount(row.amount, token.decimals);
 
+    if (amount <= 0n) {
+      errors[row.id] = "Invalid amount";
+      continue;
+    }
+
     totals[row.tokenSymbol] =
-      (totals[row.tokenSymbol] ?? BigInt(0)) + amount;
+      (totals[row.tokenSymbol] ?? 0n) + amount;
+  }
+
+  for (const [symbol, total] of Object.entries(totals)) {
+    const bal = balances[symbol as TokenSymbol] ?? 0n;
+
+    if (total > bal) {
+      rows.forEach((r) => {
+        if (r.tokenSymbol === symbol) {
+          errors[r.id] = `Insufficient ${symbol}`;
+        }
+      });
+    }
   }
 
   return {
     valid: Object.keys(errors).length === 0,
     errors,
   };
-}
-
-// ============================================================
-// GAS ESTIMATE
-// ============================================================
-export async function estimateBatchGas(rows: RecipientRow[]) {
-  const grouped = groupRowsByToken(rows);
-
-  let total = BigInt(0);
-
-  for (const [symbol, tokenRows] of Object.entries(grouped)) {
-    const token = TOKEN_REGISTRY[symbol as TokenSymbol];
-
-    const per = token.isNative ? BigInt(30000) : BigInt(80000);
-    total += per * BigInt(tokenRows.length);
-  }
-
-  return total;
 }
 
 // ============================================================
@@ -125,23 +149,13 @@ export async function executeBatch(
   const publicClient = createArcPublicClient();
 
   const [account] = await walletClient.getAddresses();
-  if (!account) throw new Error("No wallet connected");
+  if (!account) throw new Error("No wallet");
 
-  return executeBatchViaContract(rows, walletClient, publicClient, account, onProgress);
-}
+  rows.forEach((r) => onProgress(r.id, "pending"));
 
-// ============================================================
-// CONTRACT EXECUTION
-// ============================================================
-async function executeBatchViaContract(
-  rows: RecipientRow[],
-  walletClient: WalletClient,
-  publicClient: PublicClient,
-  account: Address,
-  onProgress: (rowId: string, status: RowStatus, txHash?: string) => void
-) {
   const grouped = groupRowsByToken(rows);
-  let lastTxHash = "";
+
+  let lastTx = "";
 
   for (const [symbol, tokenRows] of Object.entries(grouped)) {
     const token = TOKEN_REGISTRY[symbol as TokenSymbol];
@@ -150,37 +164,44 @@ async function executeBatchViaContract(
 
     let txHash: `0x${string}`;
 
+    // =========================================================
+    // FIX: DO NOT DOUBLE SCALE — contract expects raw parsed units
+    // =========================================================
+    const amounts = tokenRows.map((r) =>
+      parseTokenAmount(r.amount, token.decimals)
+    );
+
+    const total = amounts.reduce((a, b) => a + b, 0n);
+
     if (token.isNative) {
-      const amountsWei = tokenRows.map((r) =>
-        parseTokenAmount(r.amount, token.decimals)
-      );
-
-      const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
-
       await publicClient.simulateContract({
         address: MULTISEND_CONTRACT_ADDRESS,
         abi: NATIVE_ABI,
         functionName: "multisendNative",
-        args: [recipients, amountsWei],
+        args: [recipients, amounts],
         account,
-        value: totalWei,
+        value: total,
       });
 
       txHash = await walletClient.writeContract({
         address: MULTISEND_CONTRACT_ADDRESS,
         abi: NATIVE_ABI,
         functionName: "multisendNative",
-        args: [recipients, amountsWei],
+        args: [recipients, amounts],
         account,
         chain: arcTestnet,
-        value: totalWei,
+        value: total,
         maxFeePerGas: ARC_MAX_FEE_PER_GAS,
         maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
     } else {
-      const amounts = tokenRows.map((r) =>
-        parseTokenAmount(r.amount, token.decimals)
-      );
+      await publicClient.simulateContract({
+        address: MULTISEND_CONTRACT_ADDRESS,
+        abi: TOKEN_ABI,
+        functionName: "multisendToken",
+        args: [token.address as Address, recipients, amounts],
+        account,
+      });
 
       txHash = await walletClient.writeContract({
         address: MULTISEND_CONTRACT_ADDRESS,
@@ -194,20 +215,23 @@ async function executeBatchViaContract(
       });
     }
 
-    lastTxHash = txHash;
+    lastTx = txHash;
 
     const receipt = await publicClient.waitForTransactionReceipt({
       hash: txHash,
     });
 
-    const status = receipt.status === "success" ? "success" : "failed";
+    const status: RowStatus =
+      receipt.status === "success" ? "success" : "failed";
 
     tokenRows.forEach((r) => onProgress(r.id, status, txHash));
 
-    if (status === "failed") throw new Error("Transaction failed");
+    if (status === "failed") {
+      throw new Error("Multisend reverted");
+    }
   }
 
-  return { txHash: lastTxHash, success: true };
+  return { txHash: lastTx, success: true };
 }
 
 // ============================================================
@@ -226,13 +250,17 @@ function groupRowsByToken(rows: RecipientRow[]) {
 export async function getTransactionReceipt(txHash: string): Promise<TxReceiptResult> {
   const client = createArcPublicClient();
 
-  const receipt = await client.getTransactionReceipt({
-    hash: txHash as `0x${string}`,
-  });
+  try {
+    const receipt = await client.getTransactionReceipt({
+      hash: txHash as `0x${string}`,
+    });
 
-  return {
-    status: receipt.status === "success" ? "confirmed" : "failed",
-    blockNumber: Number(receipt.blockNumber),
-    gasUsed: receipt.gasUsed,
-  };
+    return {
+      status: receipt.status === "success" ? "confirmed" : "failed",
+      blockNumber: Number(receipt.blockNumber),
+      gasUsed: receipt.gasUsed,
+    };
+  } catch {
+    return { status: "pending" };
+  }
 }
