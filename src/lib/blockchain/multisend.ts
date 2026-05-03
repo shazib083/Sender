@@ -218,9 +218,16 @@ async function executeBatchViaContract(
     // ================= NATIVE =================
     if (token.isNative) {
       // 🔥 FIX: ALWAYS 18 DECIMALS
-      const amountsWei = tokenRows.map((r) =>
-        parseTokenAmount(r.amount, 18)
+      const amounts6 = tokenRows.map((r) =>
+        parseTokenAmount(r.amount, token.decimals)
       );
+
+        // convert 6 → 18 decimals safely
+      const amountsWei = amounts6.map(
+        (a) => a * BigInt(10 ** (18 - token.decimals))
+    );
+
+const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
 
       const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
 
