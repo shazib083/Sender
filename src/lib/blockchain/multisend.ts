@@ -217,17 +217,15 @@ async function executeBatchViaContract(
 
     // ================= NATIVE =================
 if (token.isNative) {
-  // ALWAYS 18 decimals
-  const amountsWei = tokenRows.map((r) =>
-    parseTokenAmount(r.amount, 18)
-  );
+  // 1. convert UI (6 decimals) → 18 decimals
+  const amountsWei = tokenRows.map((r) => {
+    const amount6 = parseTokenAmount(r.amount, token.decimals); // 6 decimals
+    return amount6 * BigInt(10 ** (18 - token.decimals)); // convert to 18
+  });
 
-  const totalWei = amountsWei.reduce(
-    (a, b) => a + b,
-    BigInt(0)
-  );
+  const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
 
-  // safety simulation
+  // 2. simulate (IMPORTANT: must match exact call)
   await publicClient.simulateContract({
     address: MULTISEND_CONTRACT_ADDRESS,
     abi: NATIVE_ABI,
@@ -237,6 +235,7 @@ if (token.isNative) {
     value: totalWei,
   });
 
+  // 3. send tx
   txHash = await walletClient.writeContract({
     address: MULTISEND_CONTRACT_ADDRESS,
     abi: NATIVE_ABI,
@@ -244,10 +243,7 @@ if (token.isNative) {
     args: [recipients, amountsWei],
     account,
     chain: arcTestnet,
-
-    // REQUIRED for payable multisend
     value: totalWei,
-
     maxFeePerGas: ARC_MAX_FEE_PER_GAS,
     maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
   });
