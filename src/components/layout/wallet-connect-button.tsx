@@ -43,14 +43,16 @@ export function WalletConnectButton() {
         </Button>
 
         {showModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowModal(false)}
-          >
-            <div
-              className="w-full max-w-sm rounded-2xl border border-surface-400 bg-surface-100 p-6 shadow-2xl animate-slide-up"
-              onClick={(e) => e.stopPropagation()}
-            >
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 9999 }}
+          className="flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowModal(false)}
+        >
+        <div
+          style={{ position: "relative", zIndex: 10000 }}
+          className="w-full max-w-sm rounded-2xl border border-surface-400 bg-surface-100 p-6 shadow-2xl animate-slide-up mx-4"
+          onClick={(e) => e.stopPropagation()}
+        >
               <h2 className="mb-1 text-lg font-semibold text-white">Connect Wallet</h2>
               <p className="mb-5 text-sm text-gray-400">Choose your preferred wallet provider</p>
 
