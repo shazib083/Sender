@@ -92,11 +92,12 @@ export function WalletConnectButton() {
                   }}
                   className="flex items-center gap-3 rounded-xl border border-surface-400 bg-surface-200 p-3.5 text-sm text-gray-200 hover:border-brand-500 hover:bg-surface-300 transition-all text-left"
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-500/20">
-                    <svg viewBox="0 0 35 33" className="h-5 w-5" fill="none">
-                      <path d="M32.9 1L19.5 10.6l2.4-5.7L32.9 1z" fill="#E17726" stroke="#E17726" strokeWidth=".25" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M2.1 1l13.3 9.7-2.3-5.8L2.1 1z" fill="#E27625" stroke="#E27625" strokeWidth=".25" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full overflow-hidden bg-white">
+                      <img
+                        src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg"
+                        alt="MetaMask"
+                        className="h-7 w-7 object-contain"
+                      />
                   </div>
                   <div>
                     <div className="font-medium text-white">MetaMask</div>
