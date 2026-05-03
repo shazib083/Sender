@@ -2,36 +2,31 @@
 // lib/blockchain/provider.ts
 // Arc Testnet chain configuration & provider utilities
 // ============================================================
-// NOTE: Arc testnet RPC and chain ID are loaded from env vars.
-// Update NEXT_PUBLIC_ARC_TESTNET_RPC_URL and
-// NEXT_PUBLIC_ARC_TESTNET_CHAIN_ID in .env.local once confirmed
-// from https://docs.arc.network/
-// ============================================================
 
 import { type Chain } from "viem";
 import { createPublicClient, createWalletClient, http, custom } from "viem";
 
 // ---- Arc Testnet Chain Definition ----
 export const arcTestnet: Chain = {
-  id: parseInt(process.env.NEXT_PUBLIC_ARC_TESTNET_CHAIN_ID ?? "12321", 10),
+  id: 5042002,
   name: "Arc Testnet",
   nativeCurrency: {
-    name: "ARC",
-    symbol: "ARC",
-    decimals: 18,
+    name: "USDC",
+    symbol: "USDC",
+    decimals: 6,
   },
   rpcUrls: {
     default: {
-      http: [process.env.NEXT_PUBLIC_ARC_TESTNET_RPC_URL ?? "https://rpc.arc-testnet.network"],
+      http: [process.env.NEXT_PUBLIC_ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network"],
     },
     public: {
-      http: [process.env.NEXT_PUBLIC_ARC_TESTNET_RPC_URL ?? "https://rpc.arc-testnet.network"],
+      http: [process.env.NEXT_PUBLIC_ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network"],
     },
   },
   blockExplorers: {
     default: {
       name: "Arc Explorer",
-      url: "https://explorer.arc-testnet.network",
+      url: "https://testnet.arcscan.app",
     },
   },
   testnet: true,
@@ -70,7 +65,6 @@ export async function switchToArcTestnet(): Promise<void> {
       params: [{ chainId: chainIdHex }],
     });
   } catch (switchError: unknown) {
-    // Chain not added yet — add it
     const err = switchError as { code?: number };
     if (err.code === 4902) {
       await window.ethereum.request({

@@ -77,18 +77,19 @@ export const ERC20_ABI = [
 ] as const;
 
 // ---- Token Registry ----
-// IMPORTANT: Set real Arc Testnet contract addresses in Vercel env vars:
-//   NEXT_PUBLIC_USDC_CONTRACT_ADDRESS=0xYOUR_REAL_USDC_ADDRESS
-//   NEXT_PUBLIC_EURC_CONTRACT_ADDRESS=0xYOUR_REAL_EURC_ADDRESS
-// Decimals must match the actual deployed contract (call decimals() on explorer to verify)
+// Arc Testnet specifics:
+// - USDC is the NATIVE gas token (isNative: true), decimals: 6
+//   ERC-20 interface also available at 0x3600000000000000000000000000000000000000
+//   BUT for simple transfers, always use native sendTransaction (not ERC-20 transfer)
+// - EURC is a standard ERC-20 at 0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a
 export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
   USDC: {
     symbol: "USDC",
     name: "USD Coin",
     decimals: 6,
-    address: process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS ?? "0x3600000000000000000000000000000000000000",
+    address: "0x3600000000000000000000000000000000000000",
     logoUrl: "/tokens/usdc.svg",
-    isNative: false,
+    isNative: true, // USDC is the native gas token on Arc — use sendTransaction not ERC-20 transfer
   },
   EURC: {
     symbol: "EURC",
@@ -100,8 +101,8 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
   },
   ETH: {
     symbol: "ETH",
-    name: "ARC (Native)",
-    decimals: 18,
+    name: "ARC Native",
+    decimals: 6,
     address: "",
     logoUrl: "/tokens/eth.svg",
     isNative: true,
