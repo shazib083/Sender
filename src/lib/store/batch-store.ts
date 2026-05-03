@@ -1,16 +1,32 @@
 // ============================================================
 // lib/store/batch-store.ts
-// Zustand store: recipients list, batch status, UI state
+// Zustand store: recipients, history, address book
+// SSR-safe: localStorage only accessed in browser
 // ============================================================
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { v4 as uuidv4 } from "uuid";
-import type { RecipientRow, TokenSymbol, RowStatus, BatchStatus, BatchSummary } from "@/types";
+import type { RecipientRow, TokenSymbol, RowStatus, BatchStatus, BatchSummary, AddressBookEntry, TransactionRecord } from "@/types";
 import { TOKEN_REGISTRY, parseTokenAmount } from "@/lib/blockchain/tokens";
 
+// ---- SSR-safe storage ----
+const safeStorage = () => {
+  if (typeof window === "undefined") {
+    return {
+      getItem: (_key: string) => null,
+      setItem: (_key: string, _value: string) => {},
+      removeItem: (_key: string) => {},
+      length: 0,
+      clear: () => {},
+      key: (_index: number) => null,
+    } as Storage;
+  }
+  return localStorage;
+};
+
+// ---- Batch Store ----
 interface BatchStore {
-  // Recipients
   rows: RecipientRow[];
   addRow: () => void;
   updateRow: (id: string, updates: Partial<RecipientRow>) => void;
@@ -18,19 +34,11 @@ interface BatchStore {
   clearRows: () => void;
   importRows: (rows: Omit<RecipientRow, "id" | "status">[]) => void;
   setRowStatus: (id: string, status: RowStatus, txHash?: string, errorMessage?: string) => void;
-
-  // Batch execution state
   batchStatus: BatchStatus;
   setBatchStatus: (status: BatchStatus) => void;
-
-  // Summary
   getSummary: () => BatchSummary;
-
-  // UI
   selectedToken: TokenSymbol;
   setSelectedToken: (token: TokenSymbol) => void;
-
-  // Theme
   theme: "dark" | "light";
   toggleTheme: () => void;
 }
@@ -91,15 +99,13 @@ export const useBatchStore = create<BatchStore>()(
       getSummary: () => {
         const { rows } = get();
         const totalByToken = {} as Record<TokenSymbol, bigint>;
-
         for (const row of rows) {
           if (!row.amount || !row.address) continue;
           const token = TOKEN_REGISTRY[row.tokenSymbol];
           const amount = parseTokenAmount(row.amount, token.decimals);
           totalByToken[row.tokenSymbol] =
-            (totalByToken[row.tokenSymbol] ?? 0n) + amount;
+            (totalByToken[row.tokenSymbol] ?? BigInt(0)) + amount;
         }
-
         return {
           totalByToken,
           recipientCount: rows.filter((r) => r.address && r.amount).length,
@@ -111,26 +117,18 @@ export const useBatchStore = create<BatchStore>()(
         set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),
     }),
     {
-      name: "Sender-batch-store",
-      storage: createJSONStorage(() =>
-        typeof window !== "undefined"
-        ? localStorage
-        : {
-        getItem: () => null,
-        setItem: () => {},
-        removeItem: () => {},
-        length: 0,
-        clear: () => {},
-        key: () => null,
-      }
-    ),
+      name: "rialo-batch-store",
+      storage: createJSONStorage(safeStorage),
+      partialize: (state) => ({
+        rows: state.rows,
+        selectedToken: state.selectedToken,
+        theme: state.theme,
+      }),
     }
   )
 );
 
-// ---- Address Book store ----
-import type { AddressBookEntry } from "@/types";
-
+// ---- Address Book Store ----
 interface AddressBookStore {
   entries: AddressBookEntry[];
   addEntry: (label: string, address: string) => void;
@@ -151,18 +149,19 @@ export const useAddressBookStore = create<AddressBookStore>()(
         })),
       removeEntry: (id) =>
         set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
-      findEntry: (address) => get().entries.find((e) => e.address.toLowerCase() === address.toLowerCase()),
+      findEntry: (address) =>
+        get().entries.find(
+          (e) => e.address.toLowerCase() === address.toLowerCase()
+        ),
     }),
     {
-      name: "Sender-address-book",
-      storage: createJSONStorage(() => localStorage),
+      name: "rialo-address-book",
+      storage: createJSONStorage(safeStorage),
     }
   )
 );
 
-// ---- Transaction History store ----
-import type { TransactionRecord } from "@/types";
-
+// ---- History Store ----
 interface HistoryStore {
   records: TransactionRecord[];
   addRecord: (record: TransactionRecord) => void;
@@ -178,8 +177,8 @@ export const useHistoryStore = create<HistoryStore>()(
       clearHistory: () => set({ records: [] }),
     }),
     {
-      name: "Sender-history",
-      storage: createJSONStorage(() => localStorage),
+      name: "rialo-history",
+      storage: createJSONStorage(safeStorage),
     }
   )
 );
