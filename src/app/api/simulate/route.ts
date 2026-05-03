@@ -5,10 +5,6 @@ import { TOKEN_REGISTRY, parseTokenAmount } from "@/lib/blockchain/tokens";
 import type { RecipientRow, TokenSymbol } from "@/types";
 import { isAddress, zeroAddress } from "viem";
 
-// POST /api/simulate
-// Simulates (eth_estimateGas) a batch before execution.
-// Safe to call from the client — no private keys involved.
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -20,7 +16,6 @@ export async function POST(request: Request) {
 
     const client = createArcPublicClient();
 
-    // Group rows by token
     const grouped = rows.reduce(
       (acc, row) => {
         acc[row.tokenSymbol] = [...(acc[row.tokenSymbol] ?? []), row];
@@ -29,7 +24,7 @@ export async function POST(request: Request) {
       {} as Record<string, RecipientRow[]>
     );
 
-    let totalGas = 0n;
+    let totalGas = BigInt(0);
     const errors: string[] = [];
 
     for (const [symbol, tokenRows] of Object.entries(grouped)) {
@@ -37,7 +32,9 @@ export async function POST(request: Request) {
       const recipients = tokenRows
         .map((r) => r.address)
         .filter((a) => isAddress(a)) as `0x${string}`[];
-      const amounts = tokenRows.map((r) => parseTokenAmount(r.amount, token.decimals));
+      const amounts = tokenRows.map((r) =>
+        parseTokenAmount(r.amount, token.decimals)
+      );
 
       if (recipients.length !== tokenRows.length) {
         errors.push(`Some addresses in ${symbol} group are invalid`);
@@ -45,22 +42,32 @@ export async function POST(request: Request) {
       }
 
       if (MULTISEND_CONTRACT_ADDRESS === zeroAddress) {
-        // Estimate sequential: ~65k gas per ERC-20 tx
-        totalGas += BigInt(tokenRows.length) * 65000n;
+        totalGas = totalGas + BigInt(tokenRows.length) * BigInt(65000);
       } else {
         try {
-          const gas = await client.estimateContractGas({
-            address: MULTISEND_CONTRACT_ADDRESS,
-            abi: MULTISEND_ABI,
-            functionName: token.isNative ? "multisendNative" : "multisendToken",
-            args: token.isNative
-              ? [recipients, amounts]
-              : [token.address as `0x${string}`, recipients, amounts],
-            account: zeroAddress,
-          });
-          totalGas += gas;
-        } catch (e) {
-          totalGas += BigInt(tokenRows.length) * 65000n;
+          let gas: bigint;
+
+          if (token.isNative) {
+            gas = await client.estimateContractGas({
+              address: MULTISEND_CONTRACT_ADDRESS,
+              abi: MULTISEND_ABI,
+              functionName: "multisendNative",
+              args: [recipients, amounts],
+              account: zeroAddress,
+            });
+          } else {
+            gas = await client.estimateContractGas({
+              address: MULTISEND_CONTRACT_ADDRESS,
+              abi: MULTISEND_ABI,
+              functionName: "multisendToken",
+              args: [token.address as `0x${string}`, recipients, amounts],
+              account: zeroAddress,
+            });
+          }
+
+          totalGas = totalGas + gas;
+        } catch {
+          totalGas = totalGas + BigInt(tokenRows.length) * BigInt(65000);
         }
       }
     }
