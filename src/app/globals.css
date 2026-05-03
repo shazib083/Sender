@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-geist-sans: "GeistSans", system-ui, sans-serif;
+  --font-geist-mono: "GeistMono", monospace;
+}
+
+@layer base {
+  * {
+    @apply border-surface-300;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-surface text-gray-100;
+    background-image: radial-gradient(
+        ellipse 80% 50% at 50% -10%,
+        rgba(100, 112, 241, 0.12) 0%,
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 60% 40% at 80% 80%,
+        rgba(124, 58, 237, 0.06) 0%,
+        transparent 50%
+      );
+    background-attachment: fixed;
+  }
+  ::selection {
+    @apply bg-brand-600/40 text-white;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-surface-400;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-surface-500;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply border border-surface-300 bg-surface-100/80 backdrop-blur-md;
+  }
+  .gradient-text {
+    @apply bg-gradient-to-r from-white via-gray-100 to-gray-400 bg-clip-text text-transparent;
+  }
+  .gradient-text-brand {
+    @apply bg-gradient-to-r from-brand-400 via-purple-400 to-pink-400 bg-clip-text text-transparent;
+  }
+}
+
+/* Loading shimmer */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(55, 59, 88, 0) 0%,
+    rgba(55, 59, 88, 0.8) 50%,
+    rgba(55, 59, 88, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Custom focus ring */
+*:focus-visible {
+  outline: 2px solid rgba(100, 112, 241, 0.6);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
