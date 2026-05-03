@@ -1,13 +1,10 @@
 // ============================================================
 // lib/blockchain/multisend.ts
-// MultiSend contract ABI + batch execution logic
-//
-// Arc Testnet USDC specifics:
-// - USDC is the native gas token
-// - eth_getBalance returns 18-decimal wei → divide by 10^12 for display
-// - sendTransaction value field accepts 6-decimal USDC units directly
-//   (Arc handles the internal conversion — do NOT multiply by 10^12)
-// - ERC-20 interface (EURC etc.) uses standard 6-decimal amounts
+// Arc Testnet specifics:
+// - USDC is native gas token, 18-decimal wei for sendTransaction
+// - User inputs in 6 decimals → multiply by 10^12 for sendTransaction
+// - Arc requires maxFeePerGas >= 160 Gwei explicitly
+// - ERC-20 interface (EURC) uses standard 6-decimal amounts
 // ============================================================
 
 import {
@@ -15,12 +12,28 @@ import {
   type PublicClient,
   type WalletClient,
   zeroAddress,
+  parseGwei,
 } from "viem";
 import { arcTestnet, createArcPublicClient, createArcWalletClient } from "./provider";
 import { ERC20_ABI, TOKEN_REGISTRY, parseTokenAmount, formatTokenAmount } from "./tokens";
 import { type RecipientRow, type RowStatus, type TokenSymbol, type TxReceiptResult } from "@/types";
 
-// ---- MultiSend Contract ABI as const ----
+// ---- Arc gas config ----
+// Arc requires maxFeePerGas >= 160 Gwei (minimum base fee)
+const ARC_MAX_FEE_PER_GAS = parseGwei("200"); // 200 Gwei — safely above 160 Gwei minimum
+const ARC_MAX_PRIORITY_FEE = parseGwei("1");   // 1 Gwei tip
+
+// ---- Arc native USDC decimal conversion ----
+// sendTransaction value = 18-decimal wei (like ETH on Ethereum)
+// User input = 6-decimal USDC
+// Multiply by 10^12 to convert
+const WEI_MULTIPLIER = BigInt(10 ** 12);
+
+function toWei(amount6: bigint): bigint {
+  return amount6 * WEI_MULTIPLIER;
+}
+
+// ---- MultiSend Contract ABI ----
 export const MULTISEND_ABI = [
   {
     name: "multisendToken",
@@ -179,6 +192,8 @@ async function executeBatchViaContract(
         args: [MULTISEND_CONTRACT_ADDRESS, totalAmount],
         account,
         chain: arcTestnet,
+        maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+        maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
       await publicClient.waitForTransactionReceipt({ hash: approveTx });
     }
@@ -190,30 +205,36 @@ async function executeBatchViaContract(
   for (const [symbol, tokenRows] of Object.entries(grouped)) {
     const token = TOKEN_REGISTRY[symbol as TokenSymbol];
     const recipients = tokenRows.map((r) => r.address as Address);
-    const amounts = tokenRows.map((r) => parseTokenAmount(r.amount, token.decimals));
+    const amounts6 = tokenRows.map((r) => parseTokenAmount(r.amount, token.decimals));
 
     let txHash: `0x${string}`;
 
     if (token.isNative) {
-      // Arc native USDC: pass 6-decimal amounts directly as value
-      const totalValue = amounts.reduce((a, b) => a + b, BigInt(0));
+      // Convert 6-decimal to 18-decimal wei for native value
+      const amountsWei = amounts6.map((a) => toWei(a));
+      const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
+
       txHash = await walletClient.writeContract({
         address: MULTISEND_CONTRACT_ADDRESS,
         abi: NATIVE_ABI,
         functionName: "multisendNative",
-        args: [recipients, amounts],
+        args: [recipients, amountsWei],
         account,
         chain: arcTestnet,
-        value: totalValue,
+        value: totalWei,
+        maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+        maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
     } else {
       txHash = await walletClient.writeContract({
         address: MULTISEND_CONTRACT_ADDRESS,
         abi: TOKEN_ABI,
         functionName: "multisendToken",
-        args: [token.address as Address, recipients, amounts],
+        args: [token.address as Address, recipients, amounts6],
         account,
         chain: arcTestnet,
+        maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+        maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
     }
 
@@ -226,7 +247,7 @@ async function executeBatchViaContract(
   return { txHash: lastTxHash, success: true };
 }
 
-// ---- Sequential fallback (no MultiSend contract) ----
+// ---- Sequential fallback ----
 async function executeBatchSequential(
   rows: RecipientRow[],
   walletClient: WalletClient,
@@ -240,29 +261,31 @@ async function executeBatchSequential(
   for (const row of rows) {
     try {
       const token = TOKEN_REGISTRY[row.tokenSymbol];
-      // Parse user 6-decimal input
-      const amount = parseTokenAmount(row.amount, token.decimals);
+      const amount6 = parseTokenAmount(row.amount, token.decimals);
 
       let txHash: `0x${string}`;
 
       if (token.isNative) {
-        // Arc native USDC: pass 6-decimal amount directly as value
-        // Arc chain accepts USDC value in 6-decimal units in sendTransaction
+        // Convert 6-decimal USDC to 18-decimal wei
+        const valueWei = toWei(amount6);
         txHash = await walletClient.sendTransaction({
           to: row.address as Address,
-          value: amount,
+          value: valueWei,
           account,
           chain: arcTestnet,
+          maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+          maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
         });
       } else {
-        // Standard ERC-20 transfer (EURC etc.)
         txHash = await walletClient.writeContract({
           address: token.address as Address,
           abi: ERC20_ABI,
           functionName: "transfer",
-          args: [row.address as Address, amount],
+          args: [row.address as Address, amount6],
           account,
           chain: arcTestnet,
+          maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+          maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
         });
       }
 
@@ -301,7 +324,6 @@ export async function getTransactionReceipt(
       hash: txHash as `0x${string}`,
     });
     const block = await client.getBlock({ blockNumber: receipt.blockNumber });
-
     return {
       status: receipt.status === "success" ? "confirmed" : "failed",
       blockNumber: Number(receipt.blockNumber),
@@ -346,7 +368,6 @@ export async function validateBatch(
     totals[row.tokenSymbol] = (totals[row.tokenSymbol] ?? BigInt(0)) + amount;
   }
 
-  // Check balances — both stored in 6-decimal units
   for (const [symbol, total] of Object.entries(totals)) {
     const available = balances[symbol as TokenSymbol] ?? BigInt(0);
     if (total > available) {
