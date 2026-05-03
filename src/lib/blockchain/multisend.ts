@@ -216,47 +216,42 @@ async function executeBatchViaContract(
     let txHash: `0x${string}`;
 
     // ================= NATIVE =================
-    if (token.isNative) {
-      /**
-       * IMPORTANT FIXES:
-       * 1. DO NOT manually multiply decimals (causes overflow/revert)
-       * 2. DO NOT send `value` unless contract explicitly requires it
-       * 3. ALWAYS use parseTokenAmount correctly
-       */
+if (token.isNative) {
+  // ALWAYS 18 decimals
+  const amountsWei = tokenRows.map((r) =>
+    parseTokenAmount(r.amount, 18)
+  );
 
-      const amountsWei = tokenRows.map((r) =>
-        parseTokenAmount(r.amount, 18)
-      );
+  const totalWei = amountsWei.reduce(
+    (a, b) => a + b,
+    BigInt(0)
+  );
 
-      const totalWei = amountsWei.reduce(
-        (a, b) => a + b,
-        BigInt(0)
-      );
+  // safety simulation
+  await publicClient.simulateContract({
+    address: MULTISEND_CONTRACT_ADDRESS,
+    abi: NATIVE_ABI,
+    functionName: "multisendNative",
+    args: [recipients, amountsWei],
+    account,
+    value: totalWei,
+  });
 
-      // 🔒 simulate BEFORE sending (prevents revert surprises)
-      await publicClient.simulateContract({
-        address: MULTISEND_CONTRACT_ADDRESS,
-        abi: NATIVE_ABI,
-        functionName: "multisendNative",
-        args: [recipients, amountsWei],
-        account,
-      });
+  txHash = await walletClient.writeContract({
+    address: MULTISEND_CONTRACT_ADDRESS,
+    abi: NATIVE_ABI,
+    functionName: "multisendNative",
+    args: [recipients, amountsWei],
+    account,
+    chain: arcTestnet,
 
-      txHash = await walletClient.writeContract({
-        address: MULTISEND_CONTRACT_ADDRESS,
-        abi: NATIVE_ABI,
-        functionName: "multisendNative",
-        args: [recipients, amountsWei],
-        account,
-        chain: arcTestnet,
+    // REQUIRED for payable multisend
+    value: totalWei,
 
-        // ❌ IMPORTANT: DO NOT include value unless contract explicitly requires msg.value
-        // value: totalWei,
-
-        maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-        maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-      });
-    }
+    maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+  });
+}
 
     // ================= ERC20 =================
     else {
