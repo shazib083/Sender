@@ -19,7 +19,7 @@ export function SummaryPanel() {
   const { execute, isExecuting, estimateGas } = useBatchExecution();
   const { data: balances } = useTokenBalances();
   const [gasEst, setGasEst] = useState<bigint | null>(null);
-  const [batchId] = useState(uuidv4);
+  const [batchId] = useState(() => uuidv4());
 
   const summary = getSummary();
   const validRows = rows.filter((r) => r.address && r.amount);
