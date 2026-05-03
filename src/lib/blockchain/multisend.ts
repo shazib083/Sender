@@ -192,28 +192,54 @@ export async function executeBatch(
     // =========================================================
     // NATIVE FLOW
     // =========================================================
-    if (token.isNative) {
-      await publicClient.simulateContract({
-        address: MULTISEND_CONTRACT_ADDRESS,
-        abi: NATIVE_ABI,
-        functionName: "multisendNative",
-        args: [recipients, amounts],
-        account,
-        value: total,
-      });
+   if (token.isNative) {
+  // ===============================
+  // 🔍 DEBUG LOG (ADD THIS FIRST)
+  // ===============================
+  console.log("🔥 NATIVE MULTISEND DEBUG:", {
+    recipients,
+    amounts: amounts.map(String),
+    total: total.toString(),
+    token: token.symbol,
+  });
 
-      txHash = await walletClient.writeContract({
-        address: MULTISEND_CONTRACT_ADDRESS,
-        abi: NATIVE_ABI,
-        functionName: "multisendNative",
-        args: [recipients, amounts],
-        account,
-        chain: arcTestnet,
-        value: total,
-        maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-        maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-      });
-    }
+  // ===============================
+  // SIMULATION
+  // ===============================
+  try {
+    await publicClient.simulateContract({
+      address: MULTISEND_CONTRACT_ADDRESS,
+      abi: NATIVE_ABI,
+      functionName: "multisendNative",
+      args: [recipients, amounts],
+      account,
+      value: total,
+      chain: arcTestnet,
+    });
+  } catch (err: any) {
+    console.error("❌ SIMULATION FAILED:", err);
+    throw new Error(
+      err?.shortMessage ||
+      err?.message ||
+      "Simulation failed"
+    );
+  }
+
+  // ===============================
+  // EXECUTION
+  // ===============================
+  txHash = await walletClient.writeContract({
+    address: MULTISEND_CONTRACT_ADDRESS,
+    abi: NATIVE_ABI,
+    functionName: "multisendNative",
+    args: [recipients, amounts],
+    account,
+    chain: arcTestnet,
+    value: total,
+    maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+  });
+}
 
     // =========================================================
     // ERC20 FLOW
