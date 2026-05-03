@@ -77,14 +77,16 @@ export const ERC20_ABI = [
 ] as const;
 
 // ---- Token Registry ----
-// NOTE: Update contract addresses with real Arc testnet deployments.
-// Set these in .env.local (NEXT_PUBLIC_USDC_CONTRACT_ADDRESS etc.)
+// IMPORTANT: Set real Arc Testnet contract addresses in Vercel env vars:
+//   NEXT_PUBLIC_USDC_CONTRACT_ADDRESS=0xYOUR_REAL_USDC_ADDRESS
+//   NEXT_PUBLIC_EURC_CONTRACT_ADDRESS=0xYOUR_REAL_EURC_ADDRESS
+// Decimals must match the actual deployed contract (call decimals() on explorer to verify)
 export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
   USDC: {
     symbol: "USDC",
     name: "USD Coin",
-    decimals: 18,
-    address: process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS ?? "0x3600000000000000000000000000000000000000",
+    decimals: 6,
+    address: process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS ?? "",
     logoUrl: "/tokens/usdc.svg",
     isNative: false,
   },
@@ -114,7 +116,7 @@ export function getToken(symbol: TokenSymbol): Token {
 
 // ---- Amount formatting utilities ----
 export function parseTokenAmount(amount: string, decimals: number): bigint {
-  if (!amount || amount === "." || amount === "") return 0n;
+  if (!amount || amount === "." || amount === "") return BigInt(0);
   const parts = amount.split(".");
   const whole = BigInt(parts[0] ?? "0");
   const decimalStr = (parts[1] ?? "").padEnd(decimals, "0").slice(0, decimals);
