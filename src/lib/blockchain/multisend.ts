@@ -217,15 +217,19 @@ async function executeBatchViaContract(
 
     // ================= NATIVE =================
 if (token.isNative) {
-  // IMPORTANT: DO NOT convert decimals manually
+  // ALWAYS treat native as 18 decimals (ignore token.decimals)
 
   const amountsWei = tokenRows.map((r) =>
-    parseTokenAmount(r.amount, token.decimals) // 6 decimals only
+    parseTokenAmount(r.amount, 18)
   );
 
   const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
 
-  // simulate
+  // sanity check (VERY IMPORTANT)
+  if (totalWei === 0n) {
+    throw new Error("Total value is zero");
+  }
+
   await publicClient.simulateContract({
     address: MULTISEND_CONTRACT_ADDRESS,
     abi: NATIVE_ABI,
@@ -243,8 +247,6 @@ if (token.isNative) {
     account,
     chain: arcTestnet,
     value: totalWei,
-    maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
   });
 }
 
