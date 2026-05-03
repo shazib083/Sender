@@ -112,12 +112,18 @@ export const useBatchStore = create<BatchStore>()(
     }),
     {
       name: "Sender-batch-store",
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        rows: state.rows,
-        selectedToken: state.selectedToken,
-        theme: state.theme,
-      }),
+      storage: createJSONStorage(() =>
+        typeof window !== "undefined"
+        ? localStorage
+        : {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+        length: 0,
+        clear: () => {},
+        key: () => null,
+      }
+    ),
     }
   )
 );

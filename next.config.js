@@ -14,6 +14,7 @@ const nextConfig = {
       tls: false,
       encoding: false,
       "pino-pretty": false,
+      indexedDB: false,
     };
     return config;
   },
