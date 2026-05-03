@@ -1,5 +1,6 @@
 // ============================================================
-// lib/blockchain/multisend.ts (FIXED STABLE EXECUTION VERSION)
+// lib/blockchain/multisend.ts (HARDENED FINAL VERSION)
+// Fixes revert caused by incorrect bigint handling + scaling mismatch
 // ============================================================
 
 import {
@@ -70,16 +71,14 @@ export const MULTISEND_CONTRACT_ADDRESS =
 export const MAX_BATCH_SIZE = 200;
 
 // ============================================================
-// GAS ESTIMATION
+// GAS ESTIMATE
 // ============================================================
 export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
-  const grouped = groupRowsByToken(rows);
-  let total = BigInt(0);
+  let total = 0n;
 
-  for (const [symbol, tokenRows] of Object.entries(grouped)) {
-    const token = TOKEN_REGISTRY[symbol as TokenSymbol];
-    const per = token.isNative ? BigInt(50000) : BigInt(90000);
-    total += per * BigInt(tokenRows.length);
+  for (const r of rows) {
+    const token = TOKEN_REGISTRY[r.tokenSymbol];
+    total += token.isNative ? 50000n : 90000n;
   }
 
   return total;
@@ -121,12 +120,12 @@ export async function validateBatch(
   }
 
   for (const [symbol, total] of Object.entries(totals)) {
-    const bal = balances[symbol as TokenSymbol] ?? 0n;
+    const balance = balances[symbol as TokenSymbol] ?? 0n;
 
-    if (total > bal) {
+    if (total > balance) {
       rows.forEach((r) => {
         if (r.tokenSymbol === symbol) {
-          errors[r.id] = `Insufficient ${symbol}`;
+          errors[r.id] = "Insufficient balance";
         }
       });
     }
@@ -139,7 +138,7 @@ export async function validateBatch(
 }
 
 // ============================================================
-// MAIN EXECUTION
+// MAIN EXECUTION (FIXED CORE LOGIC)
 // ============================================================
 export async function executeBatch(
   rows: RecipientRow[],
@@ -149,7 +148,11 @@ export async function executeBatch(
   const publicClient = createArcPublicClient();
 
   const [account] = await walletClient.getAddresses();
-  if (!account) throw new Error("No wallet");
+  if (!account) throw new Error("No wallet connected");
+
+  if (rows.length > MAX_BATCH_SIZE) {
+    throw new Error(`Max batch size exceeded`);
+  }
 
   rows.forEach((r) => onProgress(r.id, "pending"));
 
@@ -162,17 +165,30 @@ export async function executeBatch(
 
     const recipients = tokenRows.map((r) => r.address as Address);
 
-    let txHash: `0x${string}`;
+    // =========================================================
+    // 🔥 CRITICAL FIX: ALWAYS BIGINT FROM PARSE FUNCTION
+    // =========================================================
+    const amounts: bigint[] = tokenRows.map((r) => {
+      const parsed = parseTokenAmount(r.amount, token.decimals);
 
-    // =========================================================
-    // FIX: DO NOT DOUBLE SCALE — contract expects raw parsed units
-    // =========================================================
-    const amounts = tokenRows.map((r) =>
-      parseTokenAmount(r.amount, token.decimals)
-    );
+      if (typeof parsed !== "bigint") {
+        throw new Error("Amount conversion failed (not bigint)");
+      }
+
+      return parsed;
+    });
 
     const total = amounts.reduce((a, b) => a + b, 0n);
 
+    console.log("RECIPIENTS:", recipients);
+    console.log("AMOUNTS:", amounts.map(String));
+    console.log("TOTAL:", total.toString());
+
+    let txHash: `0x${string}`;
+
+    // =========================================================
+    // NATIVE TOKEN FLOW
+    // =========================================================
     if (token.isNative) {
       await publicClient.simulateContract({
         address: MULTISEND_CONTRACT_ADDRESS,
@@ -194,7 +210,36 @@ export async function executeBatch(
         maxFeePerGas: ARC_MAX_FEE_PER_GAS,
         maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
-    } else {
+    }
+
+    // =========================================================
+    // ERC20 FLOW
+    // =========================================================
+    else {
+      const allowance = (await publicClient.readContract({
+        address: token.address as Address,
+        abi: ERC20_ABI,
+        functionName: "allowance",
+        args: [account, MULTISEND_CONTRACT_ADDRESS],
+      })) as bigint;
+
+      if (allowance < total) {
+        const approveTx = await walletClient.writeContract({
+          address: token.address as Address,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [MULTISEND_CONTRACT_ADDRESS, total],
+          account,
+          chain: arcTestnet,
+          maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+          maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+        });
+
+        await publicClient.waitForTransactionReceipt({
+          hash: approveTx,
+        });
+      }
+
       await publicClient.simulateContract({
         address: MULTISEND_CONTRACT_ADDRESS,
         abi: TOKEN_ABI,
@@ -227,7 +272,7 @@ export async function executeBatch(
     tokenRows.forEach((r) => onProgress(r.id, status, txHash));
 
     if (status === "failed") {
-      throw new Error("Multisend reverted");
+      throw new Error("Transaction reverted");
     }
   }
 
@@ -247,10 +292,11 @@ function groupRowsByToken(rows: RecipientRow[]) {
 // ============================================================
 // RECEIPT
 // ============================================================
-export async function getTransactionReceipt(txHash: string): Promise<TxReceiptResult> {
-  const client = createArcPublicClient();
-
+export async function getTransactionReceipt(
+  txHash: string
+): Promise<TxReceiptResult> {
   try {
+    const client = createArcPublicClient();
     const receipt = await client.getTransactionReceipt({
       hash: txHash as `0x${string}`,
     });
