@@ -217,28 +217,29 @@ async function executeBatchViaContract(
 
     // ================= NATIVE =================
     if (token.isNative) {
-      // 🔥 FIX: ALWAYS 18 DECIMALS
-      const amounts6 = tokenRows.map((r) =>
-        parseTokenAmount(r.amount, token.decimals)
+      /**
+       * IMPORTANT FIXES:
+       * 1. DO NOT manually multiply decimals (causes overflow/revert)
+       * 2. DO NOT send `value` unless contract explicitly requires it
+       * 3. ALWAYS use parseTokenAmount correctly
+       */
+
+      const amountsWei = tokenRows.map((r) =>
+        parseTokenAmount(r.amount, 18)
       );
 
-        // convert 6 → 18 decimals safely
-      const amountsWei = amounts6.map(
-        (a) => a * BigInt(10 ** (18 - token.decimals))
-    );
+      const totalWei = amountsWei.reduce(
+        (a, b) => a + b,
+        BigInt(0)
+      );
 
-const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
-
-      const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
-
-      // simulate first (prevents revert tx)
+      // 🔒 simulate BEFORE sending (prevents revert surprises)
       await publicClient.simulateContract({
         address: MULTISEND_CONTRACT_ADDRESS,
         abi: NATIVE_ABI,
         functionName: "multisendNative",
         args: [recipients, amountsWei],
         account,
-        value: totalWei,
       });
 
       txHash = await walletClient.writeContract({
@@ -248,7 +249,10 @@ const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
         args: [recipients, amountsWei],
         account,
         chain: arcTestnet,
-        value: totalWei,
+
+        // ❌ IMPORTANT: DO NOT include value unless contract explicitly requires msg.value
+        // value: totalWei,
+
         maxFeePerGas: ARC_MAX_FEE_PER_GAS,
         maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
@@ -260,7 +264,10 @@ const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
         parseTokenAmount(r.amount, token.decimals)
       );
 
-      const totalAmount = amounts.reduce((a, b) => a + b, BigInt(0));
+      const totalAmount = amounts.reduce(
+        (a, b) => a + b,
+        BigInt(0)
+      );
 
       const allowance = (await publicClient.readContract({
         address: token.address as Address,
@@ -312,7 +319,8 @@ const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
       hash: txHash,
     });
 
-    const status = receipt.status === "success" ? "success" : "failed";
+    const status: RowStatus =
+      receipt.status === "success" ? "success" : "failed";
 
     tokenRows.forEach((r) => onProgress(r.id, status, txHash));
 
