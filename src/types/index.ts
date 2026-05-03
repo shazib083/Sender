@@ -2,14 +2,13 @@
 // Core domain types for Sender MultiSend
 // ============================================================
 
-// ✅ FIX: removed ETH because it's NOT in TOKEN_REGISTRY
 export type TokenSymbol = "USDC" | "EURC";
 
 export interface Token {
   symbol: TokenSymbol;
   name: string;
   decimals: number;
-  address: string; // contract address (empty string for native ETH if used later)
+  address: string;
   logoUrl: string;
   isNative?: boolean;
 }
@@ -54,7 +53,6 @@ export interface BatchSummary {
   totalByToken: Record<TokenSymbol, bigint>;
   recipientCount: number;
   estimatedGas?: bigint;
-  estimatedGasCostEth?: string;
 }
 
 export interface BatchExecution {

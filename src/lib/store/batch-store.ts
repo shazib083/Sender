@@ -7,7 +7,15 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { v4 as uuidv4 } from "uuid";
-import type { RecipientRow, TokenSymbol, RowStatus, BatchStatus, BatchSummary, AddressBookEntry, TransactionRecord } from "@/types";
+import type {
+  RecipientRow,
+  TokenSymbol,
+  RowStatus,
+  BatchStatus,
+  BatchSummary,
+  AddressBookEntry,
+  TransactionRecord,
+} from "@/types";
 import { TOKEN_REGISTRY, parseTokenAmount } from "@/lib/blockchain/tokens";
 
 // ---- SSR-safe storage ----
@@ -33,7 +41,12 @@ interface BatchStore {
   removeRow: (id: string) => void;
   clearRows: () => void;
   importRows: (rows: Omit<RecipientRow, "id" | "status">[]) => void;
-  setRowStatus: (id: string, status: RowStatus, txHash?: string, errorMessage?: string) => void;
+  setRowStatus: (
+    id: string,
+    status: RowStatus,
+    txHash?: string,
+    errorMessage?: string
+  ) => void;
   batchStatus: BatchStatus;
   setBatchStatus: (status: BatchStatus) => void;
   getSummary: () => BatchSummary;
@@ -66,7 +79,9 @@ export const useBatchStore = create<BatchStore>()(
 
       updateRow: (id, updates) =>
         set((state) => ({
-          rows: state.rows.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+          rows: state.rows.map((r) =>
+            r.id === id ? { ...r, ...updates } : r
+          ),
         })),
 
       removeRow: (id) =>
@@ -148,7 +163,9 @@ export const useAddressBookStore = create<AddressBookStore>()(
           ],
         })),
       removeEntry: (id) =>
-        set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
+        set((s) => ({
+          entries: s.entries.filter((e) => e.id !== id),
+        })),
       findEntry: (address) =>
         get().entries.find(
           (e) => e.address.toLowerCase() === address.toLowerCase()
@@ -173,7 +190,9 @@ export const useHistoryStore = create<HistoryStore>()(
     (set) => ({
       records: [],
       addRecord: (record) =>
-        set((s) => ({ records: [record, ...s.records].slice(0, 500) })),
+        set((s) => ({
+          records: [record, ...s.records].slice(0, 500),
+        })),
       clearHistory: () => set({ records: [] }),
     }),
     {

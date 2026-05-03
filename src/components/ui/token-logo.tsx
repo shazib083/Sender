@@ -10,9 +10,6 @@ interface TokenLogoProps {
   className?: string;
 }
 
-// ============================================================
-// INLINE SVG LOGOS (NO ETH)
-// ============================================================
 const LOGOS: Record<TokenSymbol, React.ReactNode> = {
   USDC: (
     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -23,7 +20,6 @@ const LOGOS: Record<TokenSymbol, React.ReactNode> = {
       />
     </svg>
   ),
-
   EURC: (
     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="16" cy="16" r="16" fill="#2775CA" />
@@ -42,14 +38,7 @@ const LOGOS: Record<TokenSymbol, React.ReactNode> = {
   ),
 };
 
-// ============================================================
-// COMPONENT
-// ============================================================
-export function TokenLogo({
-  symbol,
-  size = 24,
-  className,
-}: TokenLogoProps) {
+export function TokenLogo({ symbol, size = 24, className }: TokenLogoProps) {
   return (
     <span
       className={cn("inline-flex shrink-0", className)}

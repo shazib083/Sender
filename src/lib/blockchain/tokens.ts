@@ -53,7 +53,6 @@ export const ERC20_ABI = [
 //   USDC = native gas token, isNative: true, decimals: 6
 //          eth_getBalance returns 18-decimal wei
 //          sendTransaction value needs 18-decimal wei (multiply by 10^12)
-//          ERC-20 interface at 0x3600... uses 6 decimals
 //   EURC = standard ERC-20, isNative: false, decimals: 6
 // ============================================================
 export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
@@ -63,7 +62,7 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
     decimals: 6,
     address: "0x3600000000000000000000000000000000000000",
     logoUrl: "/tokens/usdc.svg",
-    isNative: true, // USDC is the native gas token on Arc — use sendTransaction not ERC-20
+    isNative: true,
   },
   EURC: {
     symbol: "EURC",
@@ -74,14 +73,6 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
       "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
     logoUrl: "/tokens/eurc.svg",
     isNative: false,
-  },
-  ETH: {
-    symbol: "ETH",
-    name: "ARC Native",
-    decimals: 6,
-    address: "",
-    logoUrl: "/tokens/eth.svg",
-    isNative: true,
   },
 };
 

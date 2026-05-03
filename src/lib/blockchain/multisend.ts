@@ -39,12 +39,11 @@ import {
 } from "@/types";
 
 // ---- Arc gas config ----
-// Arc requires maxFeePerGas >= 160 Gwei minimum
 const ARC_MAX_FEE_PER_GAS = parseGwei("200");
 const ARC_MAX_PRIORITY_FEE = parseGwei("1");
 
 // ---- Arc native USDC decimal conversion ----
-// eth_getBalance and sendTransaction use 18-decimal wei
+// sendTransaction value needs 18-decimal wei
 // User inputs in 6 decimals → multiply by 10^12
 const WEI_MULTIPLIER = BigInt(10 ** 12);
 
@@ -191,7 +190,6 @@ export async function executeBatch(
     const token = TOKEN_REGISTRY[symbol as TokenSymbol];
     const recipients = tokenRows.map((r) => r.address as Address);
 
-    // Parse user 6-decimal input safely
     const amounts6: bigint[] = tokenRows.map((r) => {
       const value = String(r.amount ?? "").trim();
       if (!value) throw new Error("Empty amount");
@@ -209,7 +207,6 @@ export async function executeBatch(
       const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
 
       if (MULTISEND_CONTRACT_ADDRESS !== zeroAddress) {
-        // Use MultiSend contract
         txHash = await walletClient.writeContract({
           address: MULTISEND_CONTRACT_ADDRESS,
           abi: NATIVE_ABI,
@@ -222,7 +219,7 @@ export async function executeBatch(
           maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
         });
       } else {
-        // Sequential native sends — no contract needed
+        // Sequential native sends
         let lastNativeTx: `0x${string}` = "0x";
         let allSuccess = true;
 
@@ -256,14 +253,13 @@ export async function executeBatch(
     }
 
     // =========================================================
-    // ERC-20 PATH — EURC and other tokens
+    // ERC-20 PATH — EURC
     // Uses 6-decimal amounts directly
     // =========================================================
     else {
       const total6 = amounts6.reduce((a, b) => a + b, BigInt(0));
 
       if (MULTISEND_CONTRACT_ADDRESS !== zeroAddress) {
-        // Check and set allowance
         const allowance = (await publicClient.readContract({
           address: token.address as Address,
           abi: ERC20_ABI,

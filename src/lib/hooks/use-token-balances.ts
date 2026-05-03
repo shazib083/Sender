@@ -1,9 +1,10 @@
 // ============================================================
 // lib/hooks/use-token-balances.ts
-// Arc Testnet: USDC is native gas token
-// eth_getBalance returns 18-decimal wei
-// USDC ERC-20 interface uses 6 decimals
-// We store balance in 6-decimal units for consistent display
+// Arc Testnet balance fetching
+//
+// USDC (native): eth_getBalance returns 18-decimal wei
+//   → divide by 10^12 to get 6-decimal display units
+// EURC (ERC-20): balanceOf returns 6-decimal units directly
 // ============================================================
 
 import { useQuery } from "@tanstack/react-query";
@@ -22,17 +23,12 @@ async function fetchTokenBalances(address: string): Promise<TokenBalance[]> {
       let balance: bigint;
 
       if (token.isNative) {
-        // ✅ Native always comes in 18 decimals → convert to token.decimals (UI)
+        // Arc native USDC: eth_getBalance returns 18-decimal wei
+        // Divide by 10^12 to convert to 6-decimal display units
         const raw = await client.getBalance({ address: address as Address });
-
-        const nativeDecimals = 18;
-        const diff = nativeDecimals - token.decimals;
-
-        if (diff < 0) throw new Error("Invalid decimal config");
-
-        balance = raw / BigInt(10 ** diff);
+        balance = raw / BigInt(10 ** 12);
       } else {
-        // ✅ ERC20 already correct decimals
+        // Standard ERC-20 (EURC): balanceOf returns correct 6-decimal units
         balance = (await client.readContract({
           address: token.address as Address,
           abi: ERC20_ABI,
