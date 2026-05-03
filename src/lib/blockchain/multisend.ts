@@ -217,15 +217,15 @@ async function executeBatchViaContract(
 
     // ================= NATIVE =================
 if (token.isNative) {
-  // 1. convert UI (6 decimals) → 18 decimals
-  const amountsWei = tokenRows.map((r) => {
-    const amount6 = parseTokenAmount(r.amount, token.decimals); // 6 decimals
-    return amount6 * BigInt(10 ** (18 - token.decimals)); // convert to 18
-  });
+  // IMPORTANT: DO NOT convert decimals manually
+
+  const amountsWei = tokenRows.map((r) =>
+    parseTokenAmount(r.amount, token.decimals) // 6 decimals only
+  );
 
   const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
 
-  // 2. simulate (IMPORTANT: must match exact call)
+  // simulate
   await publicClient.simulateContract({
     address: MULTISEND_CONTRACT_ADDRESS,
     abi: NATIVE_ABI,
@@ -235,7 +235,6 @@ if (token.isNative) {
     value: totalWei,
   });
 
-  // 3. send tx
   txHash = await walletClient.writeContract({
     address: MULTISEND_CONTRACT_ADDRESS,
     abi: NATIVE_ABI,
