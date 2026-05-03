@@ -86,7 +86,7 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
     symbol: "USDC",
     name: "USD Coin",
     decimals: 6,
-    address: process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS ?? "",
+    address: process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS ?? "0x3600000000000000000000000000000000000000",
     logoUrl: "/tokens/usdc.svg",
     isNative: false,
   },
