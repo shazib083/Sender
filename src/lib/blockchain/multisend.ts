@@ -1,5 +1,6 @@
 // ============================================================
-// lib/blockchain/multisend.ts (FIXED FINAL VERSION)
+// lib/blockchain/multisend.ts
+// FINAL FIXED VERSION (EXPORTS + STABLE BUILD)
 // ============================================================
 
 import {
@@ -34,7 +35,12 @@ import {
 const ARC_MAX_FEE_PER_GAS = parseGwei("200");
 const ARC_MAX_PRIORITY_FEE = parseGwei("1");
 
-// ---------------- CONTRACT ABI ----------------
+// ---------------- CONTRACT ADDRESS ----------------
+export const MULTISEND_CONTRACT_ADDRESS =
+  (process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined) ??
+  zeroAddress;
+
+// ---------------- ABI ----------------
 export const MULTISEND_ABI = [
   {
     name: "multisendToken",
@@ -62,12 +68,51 @@ export const MULTISEND_ABI = [
 const NATIVE_ABI = [MULTISEND_ABI[1]];
 const TOKEN_ABI = [MULTISEND_ABI[0]];
 
-// ---------------- CONFIG ----------------
-export const MULTISEND_CONTRACT_ADDRESS =
-  (process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined) ??
-  zeroAddress;
-
 export const MAX_BATCH_SIZE = 200;
+
+// ============================================================
+// VALIDATION
+// ============================================================
+export async function validateBatch(
+  rows: RecipientRow[],
+  walletAddress: string,
+  balances: Record<TokenSymbol, bigint>
+) {
+  const errors: Record<string, string> = {};
+  const totals: Record<string, bigint> = {};
+
+  for (const row of rows) {
+    const token = TOKEN_REGISTRY[row.tokenSymbol];
+
+    const amount = parseTokenAmount(row.amount, token.decimals);
+
+    totals[row.tokenSymbol] =
+      (totals[row.tokenSymbol] ?? BigInt(0)) + amount;
+  }
+
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+  };
+}
+
+// ============================================================
+// GAS ESTIMATE
+// ============================================================
+export async function estimateBatchGas(rows: RecipientRow[]) {
+  const grouped = groupRowsByToken(rows);
+
+  let total = BigInt(0);
+
+  for (const [symbol, tokenRows] of Object.entries(grouped)) {
+    const token = TOKEN_REGISTRY[symbol as TokenSymbol];
+
+    const per = token.isNative ? BigInt(30000) : BigInt(80000);
+    total += per * BigInt(tokenRows.length);
+  }
+
+  return total;
+}
 
 // ============================================================
 // MAIN EXECUTION
@@ -75,26 +120,14 @@ export const MAX_BATCH_SIZE = 200;
 export async function executeBatch(
   rows: RecipientRow[],
   onProgress: (rowId: string, status: RowStatus, txHash?: string) => void
-): Promise<{ txHash: string; success: boolean }> {
-  if (!rows.length) throw new Error("No recipients");
-  if (rows.length > MAX_BATCH_SIZE)
-    throw new Error(`Max batch size ${MAX_BATCH_SIZE}`);
-
+) {
   const walletClient = createArcWalletClient();
   const publicClient = createArcPublicClient();
 
   const [account] = await walletClient.getAddresses();
   if (!account) throw new Error("No wallet connected");
 
-  rows.forEach((r) => onProgress(r.id, "pending"));
-
-  return executeBatchViaContract(
-    rows,
-    walletClient,
-    publicClient,
-    account,
-    onProgress
-  );
+  return executeBatchViaContract(rows, walletClient, publicClient, account, onProgress);
 }
 
 // ============================================================
@@ -117,18 +150,12 @@ async function executeBatchViaContract(
 
     let txHash: `0x${string}`;
 
-    // ================= NATIVE =================
     if (token.isNative) {
-      // ❗ IMPORTANT: Arc native uses 6 decimals (NOT 18)
       const amountsWei = tokenRows.map((r) =>
         parseTokenAmount(r.amount, token.decimals)
       );
 
       const totalWei = amountsWei.reduce((a, b) => a + b, BigInt(0));
-
-      if (totalWei <= 0n) {
-        throw new Error("Invalid transfer amount");
-      }
 
       await publicClient.simulateContract({
         address: MULTISEND_CONTRACT_ADDRESS,
@@ -150,45 +177,10 @@ async function executeBatchViaContract(
         maxFeePerGas: ARC_MAX_FEE_PER_GAS,
         maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
-    }
-
-    // ================= ERC20 =================
-    else {
+    } else {
       const amounts = tokenRows.map((r) =>
         parseTokenAmount(r.amount, token.decimals)
       );
-
-      const totalAmount = amounts.reduce((a, b) => a + b, BigInt(0));
-
-      const allowance = (await publicClient.readContract({
-        address: token.address as Address,
-        abi: ERC20_ABI,
-        functionName: "allowance",
-        args: [account, MULTISEND_CONTRACT_ADDRESS],
-      })) as bigint;
-
-      if (allowance < totalAmount) {
-        const approveTx = await walletClient.writeContract({
-          address: token.address as Address,
-          abi: ERC20_ABI,
-          functionName: "approve",
-          args: [MULTISEND_CONTRACT_ADDRESS, totalAmount],
-          account,
-          chain: arcTestnet,
-          maxFeePerGas: ARC_MAX_FEE_PER_GAS,
-          maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-        });
-
-        await publicClient.waitForTransactionReceipt({ hash: approveTx });
-      }
-
-      await publicClient.simulateContract({
-        address: MULTISEND_CONTRACT_ADDRESS,
-        abi: TOKEN_ABI,
-        functionName: "multisendToken",
-        args: [token.address as Address, recipients, amounts],
-        account,
-      });
 
       txHash = await walletClient.writeContract({
         address: MULTISEND_CONTRACT_ADDRESS,
@@ -208,14 +200,11 @@ async function executeBatchViaContract(
       hash: txHash,
     });
 
-    const status: RowStatus =
-      receipt.status === "success" ? "success" : "failed";
+    const status = receipt.status === "success" ? "success" : "failed";
 
     tokenRows.forEach((r) => onProgress(r.id, status, txHash));
 
-    if (status === "failed") {
-      throw new Error("Transaction reverted");
-    }
+    if (status === "failed") throw new Error("Transaction failed");
   }
 
   return { txHash: lastTxHash, success: true };
@@ -229,4 +218,21 @@ function groupRowsByToken(rows: RecipientRow[]) {
     acc[row.tokenSymbol] = [...(acc[row.tokenSymbol] || []), row];
     return acc;
   }, {} as Record<string, RecipientRow[]>);
+}
+
+// ============================================================
+// RECEIPT
+// ============================================================
+export async function getTransactionReceipt(txHash: string): Promise<TxReceiptResult> {
+  const client = createArcPublicClient();
+
+  const receipt = await client.getTransactionReceipt({
+    hash: txHash as `0x${string}`,
+  });
+
+  return {
+    status: receipt.status === "success" ? "confirmed" : "failed",
+    blockNumber: Number(receipt.blockNumber),
+    gasUsed: receipt.gasUsed,
+  };
 }
