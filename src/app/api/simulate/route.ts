@@ -1,9 +1,36 @@
 import { NextResponse } from "next/server";
 import { createArcPublicClient } from "@/lib/blockchain/provider";
-import { MULTISEND_ABI, MULTISEND_CONTRACT_ADDRESS } from "@/lib/blockchain/multisend";
+import { MULTISEND_CONTRACT_ADDRESS } from "@/lib/blockchain/multisend";
 import { TOKEN_REGISTRY, parseTokenAmount } from "@/lib/blockchain/tokens";
 import type { RecipientRow, TokenSymbol } from "@/types";
 import { isAddress, zeroAddress } from "viem";
+
+const NATIVE_ABI = [
+  {
+    name: "multisendNative",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+const TOKEN_ABI = [
+  {
+    name: "multisendToken",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+] as const;
 
 export async function POST(request: Request) {
   try {
@@ -50,7 +77,7 @@ export async function POST(request: Request) {
           if (token.isNative) {
             gas = await client.estimateContractGas({
               address: MULTISEND_CONTRACT_ADDRESS,
-              abi: MULTISEND_ABI,
+              abi: NATIVE_ABI,
               functionName: "multisendNative",
               args: [recipients, amounts],
               account: zeroAddress,
@@ -58,7 +85,7 @@ export async function POST(request: Request) {
           } else {
             gas = await client.estimateContractGas({
               address: MULTISEND_CONTRACT_ADDRESS,
-              abi: MULTISEND_ABI,
+              abi: TOKEN_ABI,
               functionName: "multisendToken",
               args: [token.address as `0x${string}`, recipients, amounts],
               account: zeroAddress,

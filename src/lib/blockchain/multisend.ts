@@ -2,37 +2,96 @@
 // lib/blockchain/multisend.ts
 // MultiSend contract ABI + batch execution logic
 // ============================================================
-// IMPORTANT: Deploy contracts/MultiSend.sol to Arc testnet and
-// set NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS in .env.local
-//
-// If no MultiSend contract is available, this module falls back
-// to sequential ERC-20 transfers (less gas efficient but safe).
-// ============================================================
 
 import {
   type Address,
   type PublicClient,
   type WalletClient,
-  encodeFunctionData,
-  parseAbi,
   zeroAddress,
 } from "viem";
 import { arcTestnet, createArcPublicClient, createArcWalletClient } from "./provider";
 import { ERC20_ABI, TOKEN_REGISTRY, parseTokenAmount, formatTokenAmount } from "./tokens";
 import { type RecipientRow, type RowStatus, type TokenSymbol, type TxReceiptResult } from "@/types";
 
-// ---- MultiSend Contract ABI ----
-// Matches contracts/MultiSend.sol
-export const MULTISEND_ABI = parseAbi([
-  "function multisend(address token, address[] recipients, uint256[] amounts)",
-  "event PaymentSent(address indexed recipient, uint256 amount)",
-]);
+// ---- MultiSend Contract ABI as const (required for viem type narrowing) ----
+export const MULTISEND_ABI = [
+  {
+    name: "multisendToken",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "multisendNative",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "multisendMixed",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "tokens", type: "address[]" },
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "TokensSent",
+    type: "event",
+    inputs: [
+      { indexed: true, name: "token", type: "address" },
+      { indexed: true, name: "sender", type: "address" },
+      { indexed: false, name: "totalAmount", type: "uint256" },
+      { indexed: false, name: "recipientCount", type: "uint256" },
+    ],
+  },
+] as const;
+
+// Separate ABIs for type-safe calls
+const NATIVE_ABI = [
+  {
+    name: "multisendNative",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+const TOKEN_ABI = [
+  {
+    name: "multisendToken",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+] as const;
 
 export const MULTISEND_CONTRACT_ADDRESS =
   (process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined) ?? zeroAddress;
 
 export const MAX_BATCH_SIZE = 200;
-export const SAFE_BATCH_CHUNK = 100; // chunk large batches
+export const SAFE_BATCH_CHUNK = 100;
 
 // ---- Gas estimation ----
 export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
@@ -40,7 +99,7 @@ export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
     const client = createArcPublicClient();
     const grouped = groupRowsByToken(rows);
 
-    let totalGas = 0n;
+    let totalGas = BigInt(0);
 
     for (const [symbol, tokenRows] of Object.entries(grouped)) {
       const token = TOKEN_REGISTRY[symbol as TokenSymbol];
@@ -48,28 +107,40 @@ export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
       const amounts = tokenRows.map((r) => parseTokenAmount(r.amount, token.decimals));
 
       if (MULTISEND_CONTRACT_ADDRESS === zeroAddress) {
-        // Sequential fallback: 65k gas per ERC-20 transfer
-        totalGas += BigInt(tokenRows.length) * 65000n;
+        totalGas = totalGas + BigInt(tokenRows.length) * BigInt(65000);
         continue;
       }
 
       try {
-        const gas = await client.estimateContractGas({
-          address: MULTISEND_CONTRACT_ADDRESS,
-          abi: MULTISEND_ABI,
-          functionName: "multisend",
-          args: token.isNative ? [recipients, amounts] : [token.address as Address, recipients, amounts],
-          account: zeroAddress,
-        });
-        totalGas += gas;
+        let gas: bigint;
+
+        if (token.isNative) {
+          gas = await client.estimateContractGas({
+            address: MULTISEND_CONTRACT_ADDRESS,
+            abi: NATIVE_ABI,
+            functionName: "multisendNative",
+            args: [recipients, amounts],
+            account: zeroAddress,
+          });
+        } else {
+          gas = await client.estimateContractGas({
+            address: MULTISEND_CONTRACT_ADDRESS,
+            abi: TOKEN_ABI,
+            functionName: "multisendToken",
+            args: [token.address as Address, recipients, amounts],
+            account: zeroAddress,
+          });
+        }
+
+        totalGas = totalGas + gas;
       } catch {
-        totalGas += BigInt(tokenRows.length) * 65000n;
+        totalGas = totalGas + BigInt(tokenRows.length) * BigInt(65000);
       }
     }
 
     return totalGas;
   } catch {
-    return 0n;
+    return BigInt(0);
   }
 }
 
@@ -88,14 +159,12 @@ export async function executeBatch(
   const [account] = await walletClient.getAddresses();
   if (!account) throw new Error("No wallet account found");
 
-  // Mark all rows as pending
   rows.forEach((r) => onProgress(r.id, "pending"));
 
   try {
     if (MULTISEND_CONTRACT_ADDRESS !== zeroAddress) {
       return await executeBatchViaContract(rows, walletClient, publicClient, account, onProgress);
     } else {
-      // Fallback: sequential transfers
       return await executeBatchSequential(rows, walletClient, publicClient, account, onProgress);
     }
   } catch (error) {
@@ -121,10 +190,9 @@ async function executeBatchViaContract(
 
     const totalAmount = tokenRows.reduce(
       (acc, r) => acc + parseTokenAmount(r.amount, token.decimals),
-      0n
+      BigInt(0)
     );
 
-    // Check existing allowance
     const allowance = await publicClient.readContract({
       address: token.address as Address,
       abi: ERC20_ABI,
@@ -152,24 +220,32 @@ async function executeBatchViaContract(
     const token = TOKEN_REGISTRY[symbol as TokenSymbol];
     const recipients = tokenRows.map((r) => r.address as Address);
     const amounts = tokenRows.map((r) => parseTokenAmount(r.amount, token.decimals));
-    const nativeValue = token.isNative
-      ? amounts.reduce((a, b) => a + b, 0n)
-      : undefined;
 
-    const txHash = await walletClient.writeContract({
-      address: MULTISEND_CONTRACT_ADDRESS,
-      abi: MULTISEND_ABI,
-      functionName: "multisend",
-      args: token.isNative
-        ? [recipients, amounts]
-        : [token.address as Address, recipients, amounts],
-      account,
-      chain: arcTestnet,
-      value: nativeValue,
-    });
+    let txHash: `0x${string}`;
+
+    if (token.isNative) {
+      const nativeValue = amounts.reduce((a, b) => a + b, BigInt(0));
+      txHash = await walletClient.writeContract({
+        address: MULTISEND_CONTRACT_ADDRESS,
+        abi: NATIVE_ABI,
+        functionName: "multisendNative",
+        args: [recipients, amounts],
+        account,
+        chain: arcTestnet,
+        value: nativeValue,
+      });
+    } else {
+      txHash = await walletClient.writeContract({
+        address: MULTISEND_CONTRACT_ADDRESS,
+        abi: TOKEN_ABI,
+        functionName: "multisendToken",
+        args: [token.address as Address, recipients, amounts],
+        account,
+        chain: arcTestnet,
+      });
+    }
 
     lastTxHash = txHash;
-
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
     const status: RowStatus = receipt.status === "success" ? "success" : "failed";
     tokenRows.forEach((r) => onProgress(r.id, status, txHash));
@@ -253,7 +329,9 @@ export async function getTransactionReceipt(
       status: receipt.status === "success" ? "confirmed" : "failed",
       blockNumber: Number(receipt.blockNumber),
       gasUsed: receipt.gasUsed,
-      timestamp: block.timestamp ? new Date(Number(block.timestamp) * 1000) : undefined,
+      timestamp: block.timestamp
+        ? new Date(Number(block.timestamp) * 1000)
+        : undefined,
     };
   } catch {
     return { status: "pending" };
@@ -263,7 +341,7 @@ export async function getTransactionReceipt(
 // ---- Validate all rows before execution ----
 export interface ValidationResult {
   valid: boolean;
-  errors: Record<string, string>; // rowId -> error message
+  errors: Record<string, string>;
 }
 
 export async function validateBatch(
@@ -277,31 +355,26 @@ export async function validateBatch(
   for (const row of rows) {
     const token = TOKEN_REGISTRY[row.tokenSymbol];
 
-    // Validate address
     if (!row.address || !/^0x[0-9a-fA-F]{40}$/.test(row.address)) {
       errors[row.id] = "Invalid wallet address";
       continue;
     }
 
-    // Validate amount
     const amount = parseTokenAmount(row.amount, token.decimals);
-    if (amount <= 0n) {
+    if (amount <= BigInt(0)) {
       errors[row.id] = "Amount must be greater than 0";
       continue;
     }
 
-    // Accumulate totals
-    totals[row.tokenSymbol] = (totals[row.tokenSymbol] ?? 0n) + amount;
+    totals[row.tokenSymbol] = (totals[row.tokenSymbol] ?? BigInt(0)) + amount;
   }
 
-  // Check balances
   for (const [symbol, total] of Object.entries(totals)) {
-    const available = balances[symbol as TokenSymbol] ?? 0n;
+    const available = balances[symbol as TokenSymbol] ?? BigInt(0);
     if (total > available) {
       const token = TOKEN_REGISTRY[symbol as TokenSymbol];
       const needed = formatTokenAmount(total, token.decimals);
       const have = formatTokenAmount(available, token.decimals);
-      // Mark rows with this token as failing balance check
       rows
         .filter((r) => r.tokenSymbol === symbol && !errors[r.id])
         .forEach((r) => {
