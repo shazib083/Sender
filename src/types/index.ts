@@ -2,13 +2,14 @@
 // Core domain types for Sender MultiSend
 // ============================================================
 
-export type TokenSymbol = "USDC" | "EURC" | "ETH";
+// ✅ FIX: removed ETH because it's NOT in TOKEN_REGISTRY
+export type TokenSymbol = "USDC" | "EURC";
 
 export interface Token {
   symbol: TokenSymbol;
   name: string;
   decimals: number;
-  address: string; // contract address (empty string for native ETH)
+  address: string; // contract address (empty string for native ETH if used later)
   logoUrl: string;
   isNative?: boolean;
 }
@@ -33,7 +34,7 @@ export type RowStatus =
 export interface RecipientRow {
   id: string;
   address: string;
-  amount: string; // human-readable, e.g. "10.50"
+  amount: string;
   tokenSymbol: TokenSymbol;
   status: RowStatus;
   txHash?: string;
@@ -41,7 +42,13 @@ export interface RecipientRow {
 }
 
 // ---- Batch ----
-export type BatchStatus = "draft" | "simulating" | "approving" | "executing" | "done" | "failed";
+export type BatchStatus =
+  | "draft"
+  | "simulating"
+  | "approving"
+  | "executing"
+  | "done"
+  | "failed";
 
 export interface BatchSummary {
   totalByToken: Record<TokenSymbol, bigint>;
@@ -70,7 +77,7 @@ export interface TransactionRecord {
   txHash: string;
   status: TxStatus;
   recipientCount: number;
-  totalByToken: Record<string, string>; // symbol → human amount
+  totalByToken: Record<string, string>;
   gasUsed?: string;
   blockNumber?: number;
   timestamp: Date;
@@ -93,7 +100,7 @@ export interface AddressBookEntry {
   createdAt: Date;
 }
 
-// ---- Blockchain Adapter (plug-in interface) ----
+// ---- Blockchain Adapter ----
 export interface IBlockchainAdapter {
   getTokenBalances(walletAddress: string): Promise<TokenBalance[]>;
   validateAddress(address: string): boolean;
@@ -113,9 +120,6 @@ export interface TxReceiptResult {
 }
 
 // ---- Circle SDK Types ----
-// NOTE: These are typed interfaces based on Circle's published API docs.
-// Replace with official @circle-fin/user-controlled-wallets types when available.
-
 export interface CircleWallet {
   id: string;
   state: "LIVE" | "FROZEN";
@@ -152,7 +156,13 @@ export interface CircleTransferRequest {
 
 export interface CircleTransferResponse {
   id: string;
-  state: "INITIATED" | "PENDING_RISK_SCREENING" | "DENIED" | "CONFIRMED" | "COMPLETE" | "FAILED";
+  state:
+    | "INITIATED"
+    | "PENDING_RISK_SCREENING"
+    | "DENIED"
+    | "CONFIRMED"
+    | "COMPLETE"
+    | "FAILED";
   txHash?: string;
   errorCode?: string;
 }
