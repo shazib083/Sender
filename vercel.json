@@ -2,13 +2,8 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
-  "installCommand": "npm install",
+  "installCommand": "npm install --legacy-peer-deps",
   "regions": ["iad1"],
-  "env": {
-    "CIRCLE_API_KEY": "@circle_api_key",
-    "CIRCLE_WALLET_SET_ID": "@circle_wallet_set_id",
-    "CIRCLE_ENTITY_SECRET": "@circle_entity_secret"
-  },
   "headers": [
     {
       "source": "/api/(.*)",
