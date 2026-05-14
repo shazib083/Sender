@@ -7,72 +7,214 @@
   --font-geist-mono: "GeistMono", monospace;
 }
 
+/* ============================================================
+   DARK THEME (default)
+   ============================================================ */
+:root,
+html.dark {
+  --color-surface:     #0d0f1a;
+  --color-surface-50:  #12141f;
+  --color-surface-100: #161824;
+  --color-surface-200: #1c1f2e;
+  --color-surface-300: #232638;
+  --color-surface-400: #2d3048;
+  --color-surface-500: #373b58;
+
+  --color-text-primary:   #f3f4f6;
+  --color-text-secondary: #9ca3af;
+  --color-text-muted:     #4b5563;
+
+  --color-border: #232638;
+
+  --bg-gradient-top:    rgba(100, 112, 241, 0.12);
+  --bg-gradient-bottom: rgba(124,  58, 237, 0.06);
+}
+
+/* ============================================================
+   LIGHT THEME
+   Palette: #e8e3d5 (warm sand), #baeae0 (mint), #6d6d67 (warm grey)
+   ============================================================ */
+html.light {
+  --color-surface:     #e8e3d5;
+  --color-surface-50:  #ede9de;
+  --color-surface-100: #f0ece2;
+  --color-surface-200: #dbd6c8;
+  --color-surface-300: #c9c4b6;
+  --color-surface-400: #b8b3a5;
+  --color-surface-500: #a8a398;
+
+  --color-text-primary:   #2a2a27;
+  --color-text-secondary: #6d6d67;
+  --color-text-muted:     #9c9c96;
+
+  --color-border: #c9c4b6;
+
+  --bg-gradient-top:    rgba(186, 234, 224, 0.45);
+  --bg-gradient-bottom: rgba(186, 234, 224, 0.20);
+
+  --color-header-bg: rgba(232, 227, 213, 0.92); /* warm sand header */
+}
+
+/* light mode header override */
+html.light header {
+  background-color: var(--color-header-bg) !important;
+}
+
+/* ============================================================
+   BASE STYLES — consume CSS vars
+   ============================================================ */
 @layer base {
   * {
-    @apply border-surface-300;
+    border-color: var(--color-border);
   }
+
   html {
     scroll-behavior: smooth;
   }
+
   body {
-    @apply bg-surface text-gray-100;
-    background-image: radial-gradient(
-        ellipse 80% 50% at 50% -10%,
-        rgba(100, 112, 241, 0.12) 0%,
-        transparent 60%
-      ),
-      radial-gradient(
-        ellipse 60% 40% at 80% 80%,
-        rgba(124, 58, 237, 0.06) 0%,
-        transparent 50%
-      );
+    background-color: var(--color-surface);
+    color: var(--color-text-primary);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, var(--bg-gradient-top)  0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80%  80%, var(--bg-gradient-bottom) 0%, transparent 50%);
     background-attachment: fixed;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
+
   ::selection {
     @apply bg-brand-600/40 text-white;
   }
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    @apply bg-surface-100;
-  }
+
+  ::-webkit-scrollbar       { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background-color: var(--color-surface-100); }
   ::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-surface-400;
+    background-color: var(--color-surface-400);
+    border-radius: 9999px;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-surface-500;
-  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--color-surface-500); }
 }
 
+/* ============================================================
+   SURFACE UTILITY OVERRIDES — point Tailwind surface-* classes
+   at CSS vars so every component picks up the theme automatically
+   ============================================================ */
+@layer utilities {
+  /* backgrounds */
+  .bg-surface          { background-color: var(--color-surface) !important; }
+  .bg-surface-DEFAULT  { background-color: var(--color-surface) !important; }
+  .bg-surface-50       { background-color: var(--color-surface-50) !important; }
+  .bg-surface-100      { background-color: var(--color-surface-100) !important; }
+  .bg-surface-200      { background-color: var(--color-surface-200) !important; }
+  .bg-surface-300      { background-color: var(--color-surface-300) !important; }
+  .bg-surface-400      { background-color: var(--color-surface-400) !important; }
+  .bg-surface-500      { background-color: var(--color-surface-500) !important; }
+
+  /* borders */
+  .border-surface-300  { border-color: var(--color-border) !important; }
+  .border-surface-400  { border-color: var(--color-surface-400) !important; }
+  .border-surface-500  { border-color: var(--color-surface-500) !important; }
+
+  /* text */
+  .text-gray-100 { color: var(--color-text-primary) !important; }
+  .text-gray-200 { color: var(--color-text-primary) !important; }
+  .text-gray-300 { color: var(--color-text-secondary) !important; }
+  .text-gray-400 { color: var(--color-text-secondary) !important; }
+  .text-gray-500 { color: var(--color-text-muted) !important; }
+  .text-gray-600 { color: var(--color-text-muted) !important; }
+  .text-white    { color: var(--color-text-primary) !important; }
+
+  /* mint accent for light mode highlights */
+  html.light .accent-mint { background-color: #baeae0; }
+}
+
+/* ============================================================
+   COMPONENT HELPERS
+   ============================================================ */
 @layer components {
   .glass {
-    @apply border border-surface-300 bg-surface-100/80 backdrop-blur-md;
+    border: 1px solid var(--color-border);
+    background-color: color-mix(in srgb, var(--color-surface-100) 80%, transparent);
+    backdrop-filter: blur(12px);
   }
+
   .gradient-text {
     @apply bg-gradient-to-r from-white via-gray-100 to-gray-400 bg-clip-text text-transparent;
   }
+
+  html.light .gradient-text {
+    @apply bg-gradient-to-r from-stone-800 via-stone-600 to-stone-500 bg-clip-text text-transparent;
+  }
+
   .gradient-text-brand {
     @apply bg-gradient-to-r from-brand-400 via-purple-400 to-pink-400 bg-clip-text text-transparent;
   }
+
+  /* Light mode: use mint + teal gradient for brand text */
+  html.light .gradient-text-brand {
+    background: linear-gradient(to right, #0d9488, #6d6d67, #2d7a6e);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
 
-/* Loading shimmer */
+/* ============================================================
+   SHIMMER LOADING
+   ============================================================ */
 .shimmer {
   background: linear-gradient(
     90deg,
-    rgba(55, 59, 88, 0) 0%,
-    rgba(55, 59, 88, 0.8) 50%,
-    rgba(55, 59, 88, 0) 100%
+    rgba(55, 59, 88, 0)    0%,
+    rgba(55, 59, 88, 0.8)  50%,
+    rgba(55, 59, 88, 0)    100%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
-/* Custom focus ring */
+html.light .shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(186, 234, 224, 0)   0%,
+    rgba(186, 234, 224, 0.8) 50%,
+    rgba(186, 234, 224, 0)   100%
+  );
+  background-size: 200% 100%;
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes fadeIn {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes slideUp {
+  0%   { transform: translateY(16px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes slideIn {
+  0%   { transform: translateX(-16px); opacity: 0; }
+  100% { transform: translateX(0);     opacity: 1; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* ============================================================
+   FOCUS RING
+   ============================================================ */
 *:focus-visible {
   outline: 2px solid rgba(100, 112, 241, 0.6);
   outline-offset: 2px;
   border-radius: 8px;
+}
+
+html.light *:focus-visible {
+  outline: 2px solid rgba(13, 148, 136, 0.6);
 }

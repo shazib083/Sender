@@ -16,8 +16,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
-      <body className="bg-surface-DEFAULT text-gray-100 antialiased min-h-screen font-sans">
+    /*
+     * No hardcoded "dark" class here — ThemeInitializer (inside Providers)
+     * reads localStorage and sets the correct class on <html> before paint,
+     * preventing a flash of wrong theme.
+     */
+    <html lang="en" suppressHydrationWarning>
+      <body className="bg-surface text-gray-100 antialiased min-h-screen font-sans">
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -43,8 +43,10 @@ export default function DashboardPage() {
         <div className="flex items-center gap-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-amber-300">Wallet not connected</p>
-            <p className="text-xs text-amber-400/70 mt-0.5">
+            <p className="text-sm font-medium text-amber-300 [html.light_&]:text-[#2a2a27]">
+              Wallet not connected
+            </p>
+            <p className="text-xs text-amber-400/70 mt-0.5 [html.light_&]:text-[#6d6d67]">
               Connect your wallet using the button in the top right corner.
             </p>
           </div>
