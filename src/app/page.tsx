@@ -1,11 +1,11 @@
 "use client";
 import Link from "next/link";
-import { ArrowRight, Zap, Shield, BarChart3, Globe, ChevronRight } from "lucide-react";
+import { ArrowRight, Zap, Shield, BarChart3, Globe, ChevronRight, Sun, Moon } from "lucide-react";
 import { useBatchStore } from "@/lib/store/batch-store";
 import { useEffect } from "react";
 
 export default function LandingPage() {
-  const { theme } = useBatchStore();
+  const { theme, toggleTheme } = useBatchStore();
 
   // Keep <html> class in sync on landing page too
   useEffect(() => {
@@ -18,7 +18,9 @@ export default function LandingPage() {
     <main className="min-h-screen overflow-x-hidden">
 
       {/* ── Nav ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-surface-300 bg-surface/70 backdrop-blur-xl transition-colors duration-300">
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-surface-300 backdrop-blur-xl transition-colors duration-300"
+        style={{ backgroundColor: theme === "light" ? "rgba(232,227,213,0.92)" : undefined }}
+      >
         <div className="mx-auto flex h-16 max-w-screen-xl items-center justify-between px-6">
           <div className="flex items-center gap-2.5 font-bold text-xl">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 shadow-glow-sm">
@@ -27,19 +29,38 @@ export default function LandingPage() {
                 <path d="M22 2L15 22 11 13 2 9l20-7z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
-            <span className="gradient-text">Sender</span>
+            <span className={theme === "light" ? "text-[#2a2a27] font-bold" : "gradient-text"}>Sender</span>
           </div>
           <div className="hidden md:flex items-center gap-6 text-sm text-gray-400">
-            <a href="#features"    className="hover:text-white transition-colors">Features</a>
-            <a href="#how-it-works" className="hover:text-white transition-colors">How it works</a>
-            <a href="https://docs.arc.network" target="_blank" rel="noopener" className="hover:text-white transition-colors">Docs</a>
+            <a href="#features"     className="hover:text-white [html.light_&]:hover:text-[#2a2a27] transition-colors">Features</a>
+            <a href="#how-it-works" className="hover:text-white [html.light_&]:hover:text-[#2a2a27] transition-colors">How it works</a>
+            <a href="https://docs.arc.network" target="_blank" rel="noopener" className="hover:text-white [html.light_&]:hover:text-[#2a2a27] transition-colors">Docs</a>
           </div>
-          <Link
-            href="/app"
-            className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500 transition-all hover:shadow-glow-sm active:scale-95"
-          >
-            Launch App <ArrowRight className="h-4 w-4" />
-          </Link>
+          <div className="flex items-center gap-3">
+            {/* Theme toggle */}
+            <button
+              onClick={() => {
+                toggleTheme();
+                const next = theme === "dark" ? "light" : "dark";
+                const html = document.documentElement;
+                html.classList.remove("dark", "light");
+                html.classList.add(next);
+              }}
+              className="rounded-lg p-2 transition-all duration-200 hover:bg-surface-200 text-gray-400 hover:text-white [html.light_&]:text-[#6d6d67] [html.light_&]:hover:text-[#2a2a27]"
+              aria-label="Toggle theme"
+            >
+              {theme === "dark"
+                ? <Sun  className="h-4 w-4" />
+                : <Moon className="h-4 w-4" />
+              }
+            </button>
+            <Link
+              href="/app"
+              className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500 transition-all hover:shadow-glow-sm active:scale-95"
+            >
+              Launch App <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -64,9 +85,9 @@ export default function LandingPage() {
         />
 
         <div className="relative max-w-4xl">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-brand-500/30 bg-brand-500/10 px-4 py-1.5 text-xs font-medium text-brand-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
-            Live on Arc Testnet · Circle USDC &amp; EURC
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-brand-500/30 bg-brand-500/10 px-4 py-1.5 text-xs font-medium text-brand-300 [html.light_&]:border-[#6d6d67]/40 [html.light_&]:bg-[#dbd6c8] [html.light_&]:text-[#2a2a27]">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse [html.light_&]:bg-[#6d6d67]" />
+            Live on Rialo & Arc Testnet · Circle USDC &amp; EURC
           </div>
 
           <h1 className="mb-6 text-5xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl text-gray-100">
@@ -99,15 +120,15 @@ export default function LandingPage() {
           </div>
 
           {/* Stats */}
-          <div className="mt-16 grid grid-cols-3 gap-6 rounded-2xl border border-surface-300 bg-surface-100/50 p-6 backdrop-blur-sm">
+          <div className="mt-16 grid grid-cols-3 gap-6 rounded-2xl border border-surface-300 bg-surface-100/50 p-6 backdrop-blur-sm [html.light_&]:bg-[#dbd6c8] [html.light_&]:border-[#c9c4b6]">
             {[
               { value: "200",     label: "Recipients per batch" },
               { value: "2",       label: "Supported tokens"     },
               { value: "1-click", label: "Batch execution"      },
             ].map((stat) => (
               <div key={stat.label} className="text-center">
-                <p className="text-3xl font-bold gradient-text-brand">{stat.value}</p>
-                <p className="mt-1 text-sm text-gray-500">{stat.label}</p>
+                <p className="text-3xl font-bold gradient-text-brand [html.light_&]:text-[#2a2a27]">{stat.value}</p>
+                <p className="mt-1 text-sm text-gray-500 [html.light_&]:text-[#6d6d67]">{stat.label}</p>
               </div>
             ))}
           </div>
@@ -118,11 +139,11 @@ export default function LandingPage() {
       <section id="features" className="py-24 px-6">
         <div className="mx-auto max-w-screen-xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold sm:text-4xl text-gray-100">
+            <h2 className="text-3xl font-bold sm:text-4xl text-gray-100 [html.light_&]:text-[#2a2a27]">
               Everything you need to{" "}
               <span className="gradient-text-brand">distribute at scale</span>
             </h2>
-            <p className="mt-4 text-gray-400 max-w-xl mx-auto">
+            <p className="mt-4 text-gray-400 [html.light_&]:text-[#6d6d67] max-w-xl mx-auto">
               Built for teams, DAOs, and protocols that need reliable, gas-efficient token distribution.
             </p>
           </div>
@@ -139,7 +160,7 @@ export default function LandingPage() {
       <section id="how-it-works" className="py-24 px-6">
         <div className="mx-auto max-w-screen-lg">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold sm:text-4xl text-gray-100">
+            <h2 className="text-3xl font-bold sm:text-4xl text-gray-100 [html.light_&]:text-[#2a2a27]">
               How it works
             </h2>
           </div>
@@ -159,15 +180,14 @@ export default function LandingPage() {
         <div className="mx-auto max-w-2xl text-center">
           <div className="rounded-3xl border border-surface-300 bg-surface-100 p-12 relative overflow-hidden">
             <div className="pointer-events-none absolute inset-0 bg-mesh-gradient" />
-            {/* Light mode mint overlay */}
             <div
               className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 [html.light_&]:opacity-100"
               style={{ background: "linear-gradient(135deg, rgba(186,234,224,0.3) 0%, transparent 60%)" }}
             />
-            <h2 className="relative text-3xl font-bold text-gray-100 mb-4">
+            <h2 className="relative text-3xl font-bold text-gray-100 [html.light_&]:text-[#2a2a27] mb-4">
               Ready to send at scale?
             </h2>
-            <p className="relative text-gray-400 mb-8">
+            <p className="relative text-gray-400 [html.light_&]:text-[#6d6d67] mb-8">
               Connect your wallet and start distributing tokens in minutes.
             </p>
             <Link
@@ -181,7 +201,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Footer ── */}
-      <footer className="border-t border-surface-300 py-8 px-6 text-center text-sm text-gray-500">
+      <footer className="border-t border-surface-300 py-8 px-6 text-center text-sm text-gray-500 [html.light_&]:text-[#6d6d67]">
         © {new Date().getFullYear()} Sender MultiSend. All rights reserved. Built on Arc Testnet with Circle.
       </footer>
     </main>
@@ -256,8 +276,8 @@ function FeatureCard({
       <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500/10 text-brand-400 group-hover:bg-brand-500/20 transition-colors">
         <Icon className="h-5 w-5" />
       </div>
-      <h3 className="mb-2 font-semibold text-gray-100">{title}</h3>
-      <p className="text-sm text-gray-500 leading-relaxed">{description}</p>
+      <h3 className="mb-2 font-semibold text-gray-100 [html.light_&]:text-[#2a2a27]">{title}</h3>
+      <p className="text-sm text-gray-500 [html.light_&]:text-[#6d6d67] leading-relaxed">{description}</p>
     </div>
   );
 }
@@ -280,8 +300,8 @@ function StepCard({
         {step}
       </div>
       <div>
-        <h3 className="font-semibold text-gray-100 mb-1">{title}</h3>
-        <p className="text-sm text-gray-500 leading-relaxed">{description}</p>
+        <h3 className="font-semibold text-gray-100 [html.light_&]:text-[#2a2a27] mb-1">{title}</h3>
+        <p className="text-sm text-gray-500 [html.light_&]:text-[#6d6d67] leading-relaxed">{description}</p>
       </div>
     </div>
   );

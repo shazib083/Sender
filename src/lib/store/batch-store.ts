@@ -72,7 +72,7 @@ export const useBatchStore = create<BatchStore>()(
       rows: [emptyRow()],
       batchStatus: "draft",
       selectedToken: "USDC",
-      theme: "dark",
+      theme: "light",
 
       addRow: () =>
         set((state) => ({ rows: [...state.rows, emptyRow()] })),
@@ -128,8 +128,17 @@ export const useBatchStore = create<BatchStore>()(
       },
 
       setSelectedToken: (token) => set({ selectedToken: token }),
+
       toggleTheme: () =>
-        set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),
+        set((s) => {
+          const next = s.theme === "dark" ? "light" : "dark";
+          // Apply to DOM immediately when toggled
+          if (typeof document !== "undefined") {
+            document.documentElement.classList.remove("dark", "light");
+            document.documentElement.classList.add(next);
+          }
+          return { theme: next };
+        }),
     }),
     {
       name: "rialo-batch-store",
@@ -139,6 +148,14 @@ export const useBatchStore = create<BatchStore>()(
         selectedToken: state.selectedToken,
         theme: state.theme,
       }),
+      // Fires after Zustand reads localStorage — immediately applies
+      // the correct theme class to <html> so it never flips back
+      onRehydrateStorage: () => (state) => {
+        if (typeof document === "undefined") return;
+        const theme = state?.theme ?? "light";
+        document.documentElement.classList.remove("dark", "light");
+        document.documentElement.classList.add(theme);
+      },
     }
   )
 );

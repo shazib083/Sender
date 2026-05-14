@@ -16,12 +16,34 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    /*
-     * No hardcoded "dark" class here — ThemeInitializer (inside Providers)
-     * reads localStorage and sets the correct class on <html> before paint,
-     * preventing a flash of wrong theme.
-     */
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="light" suppressHydrationWarning>
+      <head>
+        {/* Inline script runs BEFORE React — reads localStorage and sets
+            the correct theme class immediately, preventing any flash.
+            Default is "light" if nothing is stored yet.             */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var stored = localStorage.getItem('rialo-batch-store');
+                  var theme = 'light';
+                  if (stored) {
+                    var parsed = JSON.parse(stored);
+                    if (parsed && parsed.state && parsed.state.theme) {
+                      theme = parsed.state.theme;
+                    }
+                  }
+                  document.documentElement.classList.remove('dark', 'light');
+                  document.documentElement.classList.add(theme);
+                } catch(e) {
+                  document.documentElement.classList.add('light');
+                }
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className="bg-surface text-gray-100 antialiased min-h-screen font-sans">
         <Providers>{children}</Providers>
       </body>

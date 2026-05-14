@@ -12,19 +12,37 @@ import { useState, useEffect } from "react";
 ---------------------------------------------------------------- */
 function ThemeInitializer() {
   useEffect(() => {
-    const stored = localStorage.getItem("rialo-batch-store");
-    let theme: "dark" | "light" = "dark";
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (parsed?.state?.theme === "light") theme = "light";
-      } catch {
-        // ignore parse errors
+    try {
+      const stored = localStorage.getItem("rialo-batch-store");
+      if (!stored) {
+        // No stored value at all — write light as default so Zustand
+        // rehydrates correctly on the next render
+        const initial = { state: { theme: "light" }, version: 0 };
+        localStorage.setItem("rialo-batch-store", JSON.stringify(initial));
+        document.documentElement.classList.remove("dark", "light");
+        document.documentElement.classList.add("light");
+        return;
       }
+
+      const parsed = JSON.parse(stored);
+      const savedTheme = parsed?.state?.theme;
+
+      // If theme key is missing entirely, inject "light"
+      if (!savedTheme) {
+        parsed.state = { ...parsed.state, theme: "light" };
+        localStorage.setItem("rialo-batch-store", JSON.stringify(parsed));
+        document.documentElement.classList.remove("dark", "light");
+        document.documentElement.classList.add("light");
+        return;
+      }
+
+      // Valid saved preference — apply it
+      document.documentElement.classList.remove("dark", "light");
+      document.documentElement.classList.add(savedTheme);
+    } catch {
+      document.documentElement.classList.remove("dark", "light");
+      document.documentElement.classList.add("light");
     }
-    const html = document.documentElement;
-    html.classList.remove("dark", "light");
-    html.classList.add(theme);
   }, []);
 
   return null;
