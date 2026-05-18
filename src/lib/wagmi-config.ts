@@ -21,7 +21,7 @@ export const wagmiConfig = createConfig({
         name: "Sender MultiSend",
         description: "Batch token distribution on Arc Testnet",
         url: process.env.NEXT_PUBLIC_APP_URL ?? "https://Sender.io",
-        icons: ["/logo.png"],
+        icons: [`${process.env.NEXT_PUBLIC_APP_URL ?? "https://Sender.io"}/logo.png`],
       },
     }),
   ],
