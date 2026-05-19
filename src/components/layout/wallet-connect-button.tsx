@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
+import { useArcName } from "@/lib/hooks/use-arc-name";
 import { Wallet, ChevronDown, LogOut, Copy, Check, ExternalLink, AlertTriangle, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import toast from "react-hot-toast";
 
 export function WalletConnectButton() {
   const { address, isConnected, isConnecting } = useAccount();
+  const { displayName } = useArcName(address);
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
@@ -177,7 +179,7 @@ export function WalletConnectButton() {
       <DropdownMenu.Trigger asChild>
         <button className="flex items-center gap-2 rounded-xl border border-surface-400 bg-surface-200 px-3 py-2 text-sm text-gray-200 hover:border-brand-500 transition-colors">
           <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          {truncateAddress(address ?? "")}
+          {displayName}
           <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
         </button>
       </DropdownMenu.Trigger>
@@ -191,7 +193,7 @@ export function WalletConnectButton() {
           <div className="px-3 py-2 border-b border-surface-300 mb-1">
             <p className="text-xs text-gray-500">Connected to Arc Testnet</p>
             <p className="font-mono text-sm text-white mt-0.5">
-              {truncateAddress(address ?? "", 6)}
+              {displayName}
             </p>
           </div>
 
