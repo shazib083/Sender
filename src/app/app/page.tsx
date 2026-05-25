@@ -7,6 +7,7 @@ import { RecipientsTable } from "@/components/dashboard/recipients-table";
 import { SummaryPanel } from "@/components/dashboard/summary-panel";
 import { NftRecipientsTable } from "@/components/dashboard/nft-recipients-table";
 import { NftSummaryPanel } from "@/components/dashboard/nft-summary-panel";
+import { WalletNFTHoldings } from "@/components/dashboard/wallet-nft-holdings";
 import { AlertTriangle, Coins, ImageIcon } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 
@@ -98,25 +99,12 @@ export default function DashboardPage() {
       {/* ── NFT TAB ── */}
       {activeTab === "nft" && (
         <>
-          {/* Info banner explaining NFT send */}
-          <div className="rounded-2xl border border-brand-500/20 bg-brand-500/5 px-5 py-4">
-            <div className="flex items-start gap-3">
-              <ImageIcon className="h-5 w-5 shrink-0 text-brand-400 mt-0.5" />
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-brand-300">NFT Bulk Send</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Send ERC-721 and ERC-1155 NFTs to multiple recipients.
-                  Contract standard is auto-detected when you enter a contract address.
-                  ERC-1155 batch transfers to the same recipient are optimised into a
-                  single on-chain call.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Main layout: NFT recipients table + summary */}
+          {/* Main layout: NFT recipients table + holdings + summary panel */}
           <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
-            <NftRecipientsTable />
+            <div className="space-y-6">
+              <NftRecipientsTable />
+              {isConnected && <WalletNFTHoldings />}
+            </div>
             <NftSummaryPanel />
           </div>
         </>
