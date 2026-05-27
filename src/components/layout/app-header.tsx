@@ -5,6 +5,7 @@ import { Moon, Sun, LayoutDashboard, History, BookOpen } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 import { useBatchStore } from "@/lib/store/batch-store";
 import { WalletConnectButton } from "./wallet-connect-button";
+import { Button } from "@/components/ui/button";
 
 const NAV_LINKS = [
   { href: "/app",              label: "Dashboard", icon: LayoutDashboard },
@@ -39,6 +40,7 @@ export function AppHeader() {
           <span className={theme === "light" ? "text-[#2a2a27] font-bold" : "gradient-text"}>Sender</span>
         </Link>
 
+
         {/* Nav */}
         <nav className="hidden md:flex items-center gap-1">
           {NAV_LINKS.map(({ href, label, icon: Icon }) => (
@@ -60,6 +62,18 @@ export function AppHeader() {
 
         {/* Right actions */}
         <div className="flex items-center gap-3">
+          {/* Faucet Button (right side) */}
+          <a
+            href="https://faucet.circle.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            tabIndex={-1}
+          >
+            <Button variant="primary" size="md" style={{ minWidth: 90, letterSpacing: '0.04em' }}>
+              Faucet
+            </Button>
+          </a>
+
           {/* Theme toggle */}
           <button
             onClick={handleToggle}

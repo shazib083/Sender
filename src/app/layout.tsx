@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="light" suppressHydrationWarning>
       <head>
+        <link rel="icon" href="/logo.png" type="image/png" />
         {/* Inline script runs BEFORE React — reads localStorage and sets
             the correct theme class immediately, preventing any flash.
             Default is "light" if nothing is stored yet.             */}
