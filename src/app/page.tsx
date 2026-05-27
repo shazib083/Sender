@@ -31,7 +31,7 @@ export default function LandingPage() {
           <div className="hidden md:flex items-center gap-6 text-sm text-gray-400">
             <a href="#features"     className="hover:text-white [html.light_&]:hover:text-[#2a2a27] transition-colors">Features</a>
             <a href="#how-it-works" className="hover:text-white [html.light_&]:hover:text-[#2a2a27] transition-colors">How it works</a>
-            <a href="https://docs.arc.network" target="_blank" rel="noopener" className="hover:text-white [html.light_&]:hover:text-[#2a2a27] transition-colors">Docs</a>
+            <Link href="/app/docs" className="hover:text-white [html.light_&]:hover:text-[#2a2a27] transition-colors">Docs</Link>
           </div>
           <div className="flex items-center gap-3">
             {/* Theme toggle */}
@@ -106,14 +106,12 @@ export default function LandingPage() {
               Launch App
               <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
             </Link>
-            <a
-              href="https://docs.arc.network"
-              target="_blank"
-              rel="noopener"
+            <Link
+              href="/app/docs"
               className="inline-flex items-center gap-2 rounded-xl border border-surface-400 bg-surface-200 px-8 py-4 text-base font-medium text-gray-300 hover:border-surface-500 hover:text-white transition-all"
             >
               Read the docs <ChevronRight className="h-4 w-4" />
-            </a>
+            </Link>
           </div>
 
           {/* Stats */}
