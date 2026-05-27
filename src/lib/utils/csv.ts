@@ -58,7 +58,7 @@ function processParsedRows(rawRows: string[][]): ParseResult {
 
     const address = row[0]?.trim() ?? "";
     const amount = row[1]?.trim() ?? "";
-    const tokenRaw = row[2]?.trim().toUpperCase() ?? "USDC";
+    const tokenRaw = row[2]?.trim() ?? "USDC";
 
     if (!address && !amount) {
       skipped++;
@@ -77,9 +77,9 @@ function processParsedRows(rawRows: string[][]): ParseResult {
       continue;
     }
 
-    const tokenSymbol = (["USDC", "EURC", "ETH"].includes(tokenRaw)
-      ? tokenRaw
-      : "USDC") as TokenSymbol;
+    const tokenSymbol = (Object.keys(TOKEN_REGISTRY).find(
+      (symbol) => symbol.toLowerCase() === tokenRaw.toLowerCase()
+    ) ?? "USDC") as TokenSymbol;
 
     // Sanitize amount: prevent injection, allow only numbers + dot
     const safeAmount = amount.replace(/[^0-9.]/g, "").slice(0, 20);
@@ -101,7 +101,7 @@ export function generateTemplate(): void {
     ["wallet_address", "amount", "token"],
     ["0x1234567890123456789012345678901234567890", "10.00", "USDC"],
     ["0xabcdef1234567890abcdef1234567890abcdef12", "25.50", "EURC"],
-    ["0x9876543210987654321098765432109876543210", "5.00", "USDC"],
+    ["0x9876543210987654321098765432109876543210", "0.01", "cirBTC"],
   ]);
 
   // Column widths

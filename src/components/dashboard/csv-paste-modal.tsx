@@ -19,7 +19,7 @@ interface CsvPasteModalProps {
 const DEFAULT_EXAMPLE_LINES: ExampleLine[] = [
   { value: "0x1234...abcd, 10.50, USDC" },
   { value: "0xabcd...1234, 5.00, EURC" },
-  { value: "0x9876...dcba, 1.0, ETH" },
+  { value: "0x9876...dcba, 0.01, cirBTC" },
 ];
 
 export function CsvPasteModal({

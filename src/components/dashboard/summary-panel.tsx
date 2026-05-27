@@ -13,12 +13,26 @@ import { exportTransactionReport } from "@/lib/utils/csv";
 import type { TokenSymbol } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
+interface GasPrice {
+  slow: number;
+  average: number;
+  fast: number;
+  source: string;
+}
+
+function formatGasPrice(gwei: number): string {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+  }).format(gwei);
+}
+
 export function SummaryPanel() {
   const { rows, batchStatus, getSummary } = useBatchStore();
   const { isConnected } = useAccount();
   const { execute, isExecuting, estimateGas } = useBatchExecution();
   const { data: balances } = useTokenBalances();
   const [gasEst, setGasEst] = useState<bigint | null>(null);
+  const [gasPrice, setGasPrice] = useState<GasPrice | null>(null);
   const [batchId] = useState(() => uuidv4());
 
   const summary = getSummary();
@@ -39,6 +53,29 @@ export function SummaryPanel() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validRows.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchGasPrice() {
+      try {
+        const response = await fetch("/api/gas-price");
+        if (!response.ok) return;
+        const data = (await response.json()) as GasPrice;
+        if (!cancelled) setGasPrice(data);
+      } catch {
+        if (!cancelled) setGasPrice(null);
+      }
+    }
+
+    fetchGasPrice();
+    const interval = window.setInterval(fetchGasPrice, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const summaryEntries = Object.entries(summary.totalByToken) as [TokenSymbol, bigint][];
   const isEmpty = summaryEntries.length === 0;
@@ -121,7 +158,18 @@ export function SummaryPanel() {
             <span className="flex items-center gap-1.5 text-sm text-gray-400">
               <TrendingUp className="h-3.5 w-3.5" /> Est. Gas
             </span>
-            <span className="text-sm font-mono text-gray-300">{gasEst.toLocaleString()} units</span>
+            <span
+              className="text-right text-sm font-mono text-gray-300"
+              title={
+                gasPrice
+                  ? `${gasEst.toLocaleString()} estimated gas units. Current average gas price from ${gasPrice.source}: ${gasPrice.average} Gwei`
+                  : `${gasEst.toLocaleString()} gas units`
+              }
+            >
+              {gasPrice
+                ? `${formatGasPrice(gasPrice.average)} Gwei`
+                : "Loading Gwei..."}
+            </span>
           </div>
         )}
 

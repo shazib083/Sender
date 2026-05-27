@@ -2,7 +2,7 @@
 // Core domain types for Sender MultiSend
 // ============================================================
 
-export type TokenSymbol = "USDC" | "EURC";
+export type TokenSymbol = "USDC" | "EURC" | "cirBTC";
 
 export interface Token {
   symbol: TokenSymbol;

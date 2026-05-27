@@ -161,7 +161,7 @@ export function NftRecipientsTable() {
       </div>
 
       {/* Column headers */}
-      <div className="hidden grid-cols-[1.2fr_0.8fr_0.6fr_0.8fr_1.2fr_80px] gap-2 px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-gray-500 lg:grid">
+      <div className="hidden grid-cols-[1.2fr_0.8fr_0.6fr_0.8fr_1.2fr_112px] gap-3 px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-gray-500 lg:grid">
         <span>Contract Address</span>
         <span>Token ID</span>
         <span>Amount</span>
@@ -278,7 +278,7 @@ function NftRowItem({ row, onUpdate, onRemove, isOnlyRow }: NftRowItemProps) {
   return (
     <div
       className={cn(
-        "grid gap-2 px-5 py-3 items-start lg:grid-cols-[1.2fr_0.8fr_0.6fr_0.8fr_1.2fr_80px]",
+        "grid gap-3 px-5 py-3 items-start lg:grid-cols-[1.2fr_0.8fr_0.6fr_0.8fr_1.2fr_112px]",
         row.status === "failed" && "bg-red-500/5",
         row.status === "success" && "bg-emerald-500/5"
       )}

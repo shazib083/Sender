@@ -4,15 +4,16 @@ import { RefreshCw } from "lucide-react";
 import { useTokenBalances } from "@/lib/hooks/use-token-balances";
 import { TokenLogo } from "@/components/ui/token-logo";
 import { cn } from "@/components/ui/utils";
+import { TOKEN_REGISTRY } from "@/lib/blockchain/tokens";
 import type { TokenSymbol } from "@/types";
 
-const DISPLAY_TOKENS: TokenSymbol[] = ["USDC", "EURC"];
+const DISPLAY_TOKENS: TokenSymbol[] = ["USDC", "EURC", "cirBTC"];
 
 export function TokenBalanceCards() {
   const { data, isLoading, refetch, isFetching } = useTokenBalances();
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
       {DISPLAY_TOKENS.map((symbol) => {
         const balance = data?.map[symbol];
         return (
@@ -45,6 +46,8 @@ function BalanceCard({
   onRefresh,
   isRefreshing,
 }: BalanceCardProps) {
+  const token = TOKEN_REGISTRY[symbol];
+
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-surface-300 bg-surface-100 p-5 transition-all hover:border-brand-500/40 hover:shadow-glow-sm">
       <div className="absolute inset-0 bg-gradient-to-br from-brand-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -53,8 +56,8 @@ function BalanceCard({
         <div className="flex items-center gap-3">
           <TokenLogo symbol={symbol} size={40} />
           <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-              {symbol}
+            <p className="text-xs font-medium normal-case tracking-wider text-gray-500">
+              {token.symbol}
             </p>
             {isLoading ? (
               <div className="mt-1.5 h-6 w-24 animate-pulse rounded bg-surface-300" />

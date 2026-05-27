@@ -30,13 +30,33 @@ import {
 // ---- Arc gas config ----
 import { parseGwei } from "viem";
 
-const ARC_MAX_FEE_PER_GAS = parseGwei("200");
+const ARC_FALLBACK_MAX_FEE_PER_GAS = parseGwei("200");
 const ARC_MAX_PRIORITY_FEE = parseGwei("1");
+
+interface GasPriceResponse {
+  fast?: number;
+}
+
+async function getArcMaxFeePerGas(): Promise<bigint> {
+  try {
+    const response = await fetch("/api/gas-price");
+    if (!response.ok) return ARC_FALLBACK_MAX_FEE_PER_GAS;
+
+    const gasPrice = (await response.json()) as GasPriceResponse;
+    if (!gasPrice.fast || !Number.isFinite(gasPrice.fast) || gasPrice.fast <= 0) {
+      return ARC_FALLBACK_MAX_FEE_PER_GAS;
+    }
+
+    return parseGwei(gasPrice.fast.toString());
+  } catch {
+    return ARC_FALLBACK_MAX_FEE_PER_GAS;
+  }
+}
 
 // ---- CONTRACT ABI (FIXED) ----
 export const MULTISEND_ABI = [
   {
-    name: "multisend",
+    name: "multisendToken",
     type: "function",
     stateMutability: "nonpayable",
     inputs: [
@@ -131,6 +151,7 @@ export async function executeBatch(
   rows.forEach((r) => onProgress(r.id, "pending"));
 
   const grouped = groupRowsByToken(rows);
+  const maxFeePerGas = await getArcMaxFeePerGas();
   let lastTx = "";
 
   for (const [symbol, tokenRows] of Object.entries(grouped)) {
@@ -162,7 +183,7 @@ export async function executeBatch(
         args: [MULTISEND_CONTRACT_ADDRESS, total],
         account,
         chain: arcTestnet,
-        maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+        maxFeePerGas,
         maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
       });
 
@@ -173,7 +194,7 @@ export async function executeBatch(
     await publicClient.simulateContract({
       address: MULTISEND_CONTRACT_ADDRESS,
       abi: MULTISEND_ABI,
-      functionName: "multisend",
+      functionName: "multisendToken",
       args: [token.address as Address, recipients, amounts],
       account,
     });
@@ -182,11 +203,11 @@ export async function executeBatch(
     const txHash = await walletClient.writeContract({
       address: MULTISEND_CONTRACT_ADDRESS,
       abi: MULTISEND_ABI,
-      functionName: "multisend",
+      functionName: "multisendToken",
       args: [token.address as Address, recipients, amounts],
       account,
       chain: arcTestnet,
-      maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+      maxFeePerGas,
       maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
     });
 

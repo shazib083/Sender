@@ -2,7 +2,7 @@
 // lib/blockchain/tokens.ts
 // Arc Testnet token registry
 // USDC = native gas token (isNative: true)
-// EURC = standard ERC-20 (isNative: false)
+// EURC/cirBTC = standard ERC-20 (isNative: false)
 // ============================================================
 
 import { type Token, type TokenSymbol } from "@/types";
@@ -54,6 +54,7 @@ export const ERC20_ABI = [
 //          eth_getBalance returns 18-decimal wei
 //          sendTransaction value needs 18-decimal wei (multiply by 10^12)
 //   EURC = standard ERC-20, isNative: false, decimals: 6
+//   cirBTC = standard ERC-20, isNative: false, decimals: 8
 // ============================================================
 export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
   USDC: {
@@ -61,7 +62,7 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
     name: "USD Coin",
     decimals: 6,
     address: "0x3600000000000000000000000000000000000000",
-    logoUrl: "/tokens/usdc.svg",
+    logoUrl: "/usdc.png",
     isNative: true,
   },
   EURC: {
@@ -71,7 +72,15 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
     address:
       process.env.NEXT_PUBLIC_EURC_CONTRACT_ADDRESS ??
       "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
-    logoUrl: "/tokens/eurc.svg",
+    logoUrl: "/eurc.png",
+    isNative: false,
+  },
+  cirBTC: {
+    symbol: "cirBTC",
+    name: "Circle Wrapped Bitcoin",
+    decimals: 8,
+    address: "0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF",
+    logoUrl: "/cirbtc.png",
     isNative: false,
   },
 };
