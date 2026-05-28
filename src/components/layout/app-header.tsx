@@ -62,18 +62,6 @@ export function AppHeader() {
 
         {/* Right actions */}
         <div className="flex items-center gap-3">
-          {/* Faucet Button (right side) */}
-          <a
-            href="https://faucet.circle.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            tabIndex={-1}
-          >
-            <Button variant="primary" size="md" style={{ minWidth: 90, letterSpacing: '0.04em' }}>
-              Faucet
-            </Button>
-          </a>
-
           {/* Theme toggle */}
           <button
             onClick={handleToggle}
@@ -91,6 +79,18 @@ export function AppHeader() {
               : <Moon className="h-4 w-4" />
             }
           </button>
+
+          {/* Faucet Button */}
+          <a
+            href="https://faucet.circle.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            tabIndex={-1}
+          >
+            <Button variant="primary" size="md" style={{ minWidth: 90, letterSpacing: '0.04em' }}>
+              Faucet
+            </Button>
+          </a>
 
           <WalletConnectButton />
         </div>
