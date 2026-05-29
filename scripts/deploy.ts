@@ -1,7 +1,13 @@
-import { ethers } from "hardhat";
+const { ethers } = require("hardhat");
 
 async function main() {
   const [deployer] = await ethers.getSigners();
+  if (!deployer) {
+    throw new Error(
+      "No deployer account found. Add DEPLOYER_PRIVATE_KEY=0x... to .env, then run this deploy script again."
+    );
+  }
+
   console.log("Deploying MultiSend with account:", deployer.address);
   console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
 

@@ -7,6 +7,7 @@ import { RecipientsTable } from "@/components/dashboard/recipients-table";
 import { SummaryPanel } from "@/components/dashboard/summary-panel";
 import { NftRecipientsTable } from "@/components/dashboard/nft-recipients-table";
 import { NftSummaryPanel } from "@/components/dashboard/nft-summary-panel";
+import { NftLaunchpad } from "@/components/dashboard/nft-launchpad";
 import { WalletNFTHoldings } from "@/components/dashboard/wallet-nft-holdings";
 import { AlertTriangle, Coins, ImageIcon } from "lucide-react";
 import { cn } from "@/components/ui/utils";
@@ -103,6 +104,7 @@ export default function DashboardPage() {
           <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
             <div className="space-y-6">
               <NftRecipientsTable />
+              <NftLaunchpad />
               {isConnected && <WalletNFTHoldings />}
             </div>
             <NftSummaryPanel />
