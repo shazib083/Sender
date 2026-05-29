@@ -150,9 +150,11 @@ export function WalletConnectButton() {
           size="sm"
           onClick={() => setShowModal(true)}
           loading={isConnecting}
+          className="h-8 w-8 px-0 sm:w-auto sm:px-3"
+          aria-label="Connect wallet"
         >
           <Wallet className="h-4 w-4" />
-          Connect Wallet
+          <span className="hidden sm:inline">Connect Wallet</span>
         </Button>
         {modal}
       </>
@@ -166,9 +168,11 @@ export function WalletConnectButton() {
         variant="danger"
         size="sm"
         onClick={() => switchChain({ chainId: arcTestnet.id })}
+        className="h-8 w-8 px-0 sm:w-auto sm:px-3"
+        aria-label="Switch to Arc"
       >
         <AlertTriangle className="h-4 w-4" />
-        Switch to Arc
+        <span className="hidden sm:inline">Switch to Arc</span>
       </Button>
     );
   }
@@ -177,10 +181,14 @@ export function WalletConnectButton() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="flex items-center gap-2 rounded-xl border border-surface-400 bg-surface-200 px-3 py-2 text-sm text-gray-200 hover:border-brand-500 transition-colors">
-          <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          {displayName}
-          <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
+        <button
+          className="flex h-8 w-8 items-center justify-center gap-2 rounded-xl border border-surface-400 bg-surface-200 px-0 text-sm text-gray-200 hover:border-brand-500 transition-colors sm:w-auto sm:px-3"
+          aria-label="Wallet menu"
+        >
+          <Wallet className="h-4 w-4 sm:hidden" />
+          <span className="hidden h-2 w-2 rounded-full bg-emerald-400 sm:block" />
+          <span className="hidden sm:inline">{displayName}</span>
+          <ChevronDown className="hidden h-3.5 w-3.5 text-gray-500 sm:block" />
         </button>
       </DropdownMenu.Trigger>
 

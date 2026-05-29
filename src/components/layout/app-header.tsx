@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Moon, Sun, LayoutDashboard, History, BookOpen } from "lucide-react";
+import { Moon, Sun, LayoutDashboard, History, BookOpen, Droplet } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 import { useBatchStore } from "@/lib/store/batch-store";
 import { WalletConnectButton } from "./wallet-connect-button";
@@ -61,7 +61,7 @@ export function AppHeader() {
         </nav>
 
         {/* Right actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Theme toggle */}
           <button
             onClick={handleToggle}
@@ -87,8 +87,14 @@ export function AppHeader() {
             rel="noopener noreferrer"
             tabIndex={-1}
           >
-            <Button variant="primary" size="md" style={{ minWidth: 90, letterSpacing: '0.04em' }}>
-              Faucet
+            <Button
+              variant="primary"
+              size="sm"
+              className="h-8 w-8 px-0 sm:w-auto sm:px-3"
+              aria-label="Open faucet"
+            >
+              <Droplet className="h-4 w-4" />
+              <span className="hidden sm:inline">Faucet</span>
             </Button>
           </a>
 
