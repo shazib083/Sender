@@ -1,8 +1,8 @@
 // ============================================================
 // lib/blockchain/tokens.ts
 // Arc Testnet token registry
-// USDC = native gas token (isNative: true)
-// EURC/cirBTC = standard ERC-20 (isNative: false)
+// USDC pays gas natively on Arc, but multisend uses its ERC-20 interface.
+// EURC/cirBTC are standard ERC-20 tokens.
 // ============================================================
 
 import { type Token, type TokenSymbol } from "@/types";
@@ -50,9 +50,8 @@ export const ERC20_ABI = [
 // ============================================================
 // TOKEN REGISTRY
 // Arc Testnet:
-//   USDC = native gas token, isNative: true, decimals: 6
-//          eth_getBalance returns 18-decimal wei
-//          sendTransaction value needs 18-decimal wei (multiply by 10^12)
+//   USDC = native gas token with optional ERC-20 interface, decimals: 6
+//          This app uses the ERC-20 interface for contract multisend.
 //   EURC = standard ERC-20, isNative: false, decimals: 6
 //   cirBTC = standard ERC-20, isNative: false, decimals: 8
 // ============================================================
@@ -63,7 +62,7 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
     decimals: 6,
     address: "0x3600000000000000000000000000000000000000",
     logoUrl: "/usdc.png",
-    isNative: true,
+    isNative: false,
   },
   EURC: {
     symbol: "EURC",

@@ -56,11 +56,32 @@ async function getArcMaxFeePerGas(): Promise<bigint> {
 // ---- CONTRACT ABI (FIXED) ----
 export const MULTISEND_ABI = [
   {
+    name: "multisend",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+  {
     name: "multisendToken",
     type: "function",
     stateMutability: "nonpayable",
     inputs: [
       { name: "token", type: "address" },
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "multisendNative",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
       { name: "recipients", type: "address[]" },
       { name: "amounts", type: "uint256[]" },
     ],
@@ -78,6 +99,11 @@ if (!addr) {
 export const MULTISEND_CONTRACT_ADDRESS = addr;
 
 export const MAX_BATCH_SIZE = 200;
+const NATIVE_USDC_DECIMAL_OFFSET = BigInt(10 ** 12);
+
+function toNativeValue(amount: bigint): bigint {
+  return amount * NATIVE_USDC_DECIMAL_OFFSET;
+}
 
 // ---- Gas estimation ----
 export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
@@ -167,6 +193,44 @@ export async function executeBatch(
 
     const total = amounts.reduce((a, b) => a + b, BigInt(0));
 
+    if (token.isNative) {
+      const nativeAmounts = amounts.map(toNativeValue);
+      const nativeTotal = nativeAmounts.reduce((a, b) => a + b, BigInt(0));
+
+      await publicClient.simulateContract({
+        address: MULTISEND_CONTRACT_ADDRESS,
+        abi: MULTISEND_ABI,
+        functionName: "multisendNative",
+        args: [recipients, nativeAmounts],
+        account,
+        value: nativeTotal,
+      });
+
+      const txHash = await walletClient.writeContract({
+        address: MULTISEND_CONTRACT_ADDRESS,
+        abi: MULTISEND_ABI,
+        functionName: "multisendNative",
+        args: [recipients, nativeAmounts],
+        account,
+        chain: arcTestnet,
+        value: nativeTotal,
+        maxFeePerGas,
+        maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+      });
+
+      lastTx = txHash;
+
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
+      });
+
+      const status: RowStatus =
+        receipt.status === "success" ? "success" : "failed";
+
+      tokenRows.forEach((r) => onProgress(r.id, status, txHash));
+      continue;
+    }
+
     // ---- APPROVAL ----
     const allowance = (await publicClient.readContract({
       address: token.address as Address,
@@ -194,7 +258,7 @@ export async function executeBatch(
     await publicClient.simulateContract({
       address: MULTISEND_CONTRACT_ADDRESS,
       abi: MULTISEND_ABI,
-      functionName: "multisendToken",
+      functionName: "multisend",
       args: [token.address as Address, recipients, amounts],
       account,
     });
@@ -203,7 +267,7 @@ export async function executeBatch(
     const txHash = await walletClient.writeContract({
       address: MULTISEND_CONTRACT_ADDRESS,
       abi: MULTISEND_ABI,
-      functionName: "multisendToken",
+      functionName: "multisend",
       args: [token.address as Address, recipients, amounts],
       account,
       chain: arcTestnet,

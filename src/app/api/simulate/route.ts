@@ -20,6 +20,17 @@ const NATIVE_ABI = [
 
 const TOKEN_ABI = [
   {
+    name: "multisend",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "recipients", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+  },
+  {
     name: "multisendToken",
     type: "function",
     stateMutability: "nonpayable",
@@ -31,6 +42,12 @@ const TOKEN_ABI = [
     outputs: [],
   },
 ] as const;
+
+const NATIVE_USDC_DECIMAL_OFFSET = BigInt(10 ** 12);
+
+function toNativeValue(amount: bigint): bigint {
+  return amount * NATIVE_USDC_DECIMAL_OFFSET;
+}
 
 export async function POST(request: Request) {
   try {
@@ -75,18 +92,22 @@ export async function POST(request: Request) {
           let gas: bigint;
 
           if (token.isNative) {
+            const nativeAmounts = amounts.map(toNativeValue);
+            const nativeTotal = nativeAmounts.reduce((a, b) => a + b, BigInt(0));
+
             gas = await client.estimateContractGas({
               address: MULTISEND_CONTRACT_ADDRESS,
               abi: NATIVE_ABI,
               functionName: "multisendNative",
-              args: [recipients, amounts],
+              args: [recipients, nativeAmounts],
               account: zeroAddress,
+              value: nativeTotal,
             });
           } else {
             gas = await client.estimateContractGas({
               address: MULTISEND_CONTRACT_ADDRESS,
               abi: TOKEN_ABI,
-              functionName: "multisendToken",
+              functionName: "multisend",
               args: [token.address as `0x${string}`, recipients, amounts],
               account: zeroAddress,
             });
