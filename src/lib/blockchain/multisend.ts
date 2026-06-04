@@ -58,7 +58,7 @@ export const MULTISEND_ABI = [
   {
     name: "multisend",
     type: "function",
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
     inputs: [
       { name: "token", type: "address" },
       { name: "recipients", type: "address[]" },
@@ -87,6 +87,37 @@ export const MULTISEND_ABI = [
     ],
     outputs: [],
   },
+  {
+    name: "InsufficientFee",
+    type: "error",
+    inputs: [
+      { name: "required", type: "uint256" },
+      { name: "provided", type: "uint256" },
+    ],
+  },
+  {
+    name: "TooManyRecipients",
+    type: "error",
+    inputs: [
+      { name: "count", type: "uint256" },
+      { name: "max", type: "uint256" },
+    ],
+  },
+  {
+    name: "ArrayLengthMismatch",
+    type: "error",
+    inputs: [],
+  },
+  {
+    name: "TransferFailed",
+    type: "error",
+    inputs: [],
+  },
+  {
+    name: "ZeroRecipients",
+    type: "error",
+    inputs: [],
+  },
 ] as const;
 
 // ---- ENV (STRICT) ----
@@ -100,9 +131,19 @@ export const MULTISEND_CONTRACT_ADDRESS = addr;
 
 export const MAX_BATCH_SIZE = 200;
 const NATIVE_USDC_DECIMAL_OFFSET = BigInt(10 ** 12);
+const FREE_TIER_MAX = 50;
+const MID_TIER_MAX = 100;
+const FEE_MID = BigInt("50000000000000000");
+const FEE_HIGH = BigInt("100000000000000000");
 
 function toNativeValue(amount: bigint): bigint {
   return amount * NATIVE_USDC_DECIMAL_OFFSET;
+}
+
+function getMultisendFee(count: number): bigint {
+  if (count <= FREE_TIER_MAX) return BigInt(0);
+  if (count <= MID_TIER_MAX) return FEE_MID;
+  return FEE_HIGH;
 }
 
 // ---- Gas estimation ----
@@ -192,6 +233,7 @@ export async function executeBatch(
     });
 
     const total = amounts.reduce((a, b) => a + b, BigInt(0));
+    const batchFee = getMultisendFee(tokenRows.length);
 
     if (token.isNative) {
       const nativeAmounts = amounts.map(toNativeValue);
@@ -261,6 +303,7 @@ export async function executeBatch(
       functionName: "multisend",
       args: [token.address as Address, recipients, amounts],
       account,
+      value: batchFee,
     });
 
     // ---- EXECUTION ----
@@ -271,6 +314,7 @@ export async function executeBatch(
       args: [token.address as Address, recipients, amounts],
       account,
       chain: arcTestnet,
+      value: batchFee,
       maxFeePerGas,
       maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
     });

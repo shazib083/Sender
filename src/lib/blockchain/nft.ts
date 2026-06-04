@@ -19,9 +19,9 @@ const NFT_MULTISEND_ADDRESS = (
 // ---- NftMultiSend ABI ----
 export const NFT_MULTISEND_ABI = [
   {
-    name: "multisendErc721",
+    name: "multisendERC721",
     type: "function",
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
     inputs: [
       { name: "token",      type: "address"   },
       { name: "recipients", type: "address[]" },
@@ -30,9 +30,9 @@ export const NFT_MULTISEND_ABI = [
     outputs: [],
   },
   {
-    name: "multisendErc1155",
+    name: "multisendERC1155",
     type: "function",
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
     inputs: [
       { name: "token",      type: "address"   },
       { name: "recipients", type: "address[]" },
@@ -42,9 +42,9 @@ export const NFT_MULTISEND_ABI = [
     outputs: [],
   },
   {
-    name: "batchToOneErc1155",
+    name: "batchToOneERC1155",
     type: "function",
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
     inputs: [
       { name: "token",     type: "address"   },
       { name: "recipient", type: "address"   },
@@ -53,7 +53,44 @@ export const NFT_MULTISEND_ABI = [
     ],
     outputs: [],
   },
+  {
+    name: "InsufficientFee",
+    type: "error",
+    inputs: [
+      { name: "required", type: "uint256" },
+      { name: "provided", type: "uint256" },
+    ],
+  },
+  {
+    name: "TooManyRecipients",
+    type: "error",
+    inputs: [
+      { name: "count", type: "uint256" },
+      { name: "max", type: "uint256" },
+    ],
+  },
+  {
+    name: "ArrayLengthMismatch",
+    type: "error",
+    inputs: [],
+  },
+  {
+    name: "ZeroRecipients",
+    type: "error",
+    inputs: [],
+  },
 ] as const;
+
+const FREE_TIER_MAX = 50;
+const MID_TIER_MAX = 100;
+const FEE_MID = BigInt("50000000000000000");
+const FEE_HIGH = BigInt("100000000000000000");
+
+function getNftMultisendFee(count: number): bigint {
+  if (count <= FREE_TIER_MAX) return BigInt(0);
+  if (count <= MID_TIER_MAX) return FEE_MID;
+  return FEE_HIGH;
+}
 
 // ---- ERC-165 interface IDs ----
 const ERC721_INTERFACE_ID = "0x80ac58cd" as `0x${string}`;
@@ -352,19 +389,21 @@ export async function executeNftBatch(
     }
 
     if (standard === "ERC721") {
-      // ── ERC-721: call multisendErc721 with all recipients + tokenIds ──
+      // ── ERC-721: call multisendERC721 with all recipients + tokenIds ──
       try {
         const recipients = groupRows.map((r) => r.recipientAddress as Address);
         const tokenIds   = groupRows.map((r) => BigInt(r.tokenId));
         const rowIds     = groupRows.map((r) => r.id);
+        const batchFee   = getNftMultisendFee(groupRows.length);
 
         const txHash: `0x${string}` = await walletClient.writeContract({
           address: NFT_MULTISEND_ADDRESS,
           abi: NFT_MULTISEND_ABI,
-          functionName: "multisendErc721",
+          functionName: "multisendERC721",
           args: [contract, recipients, tokenIds],
           account,
           chain: arcTestnet,
+          value: batchFee,
           maxFeePerGas: ARC_MAX_FEE_PER_GAS,
           maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
         });
@@ -379,8 +418,8 @@ export async function executeNftBatch(
         throw new Error(`ERC-721 multisend failed: ${msg.slice(0, 100)}`);
       }
     } else {
-      // ── ERC-1155: group by recipient for batchToOneErc1155,
-      //    or use multisendErc1155 when recipients differ ──
+      // ── ERC-1155: group by recipient for batchToOneERC1155,
+      //    or use multisendERC1155 when recipients differ ──
       const byRecipient = groupBy1155ByRecipient(groupRows);
       const recipientList = Object.keys(byRecipient);
 
@@ -392,14 +431,16 @@ export async function executeNftBatch(
           const ids     = recipientRows.map((r) => BigInt(r.tokenId));
           const amounts = recipientRows.map((r) => BigInt(r.amount || "1"));
           const rowIds  = recipientRows.map((r) => r.id);
+          const batchFee = getNftMultisendFee(recipientRows.length);
 
           const txHash: `0x${string}` = await walletClient.writeContract({
             address: NFT_MULTISEND_ADDRESS,
             abi: NFT_MULTISEND_ABI,
-            functionName: "batchToOneErc1155",
+            functionName: "batchToOneERC1155",
             args: [contract, recipient, ids, amounts],
             account,
             chain: arcTestnet,
+            value: batchFee,
             maxFeePerGas: ARC_MAX_FEE_PER_GAS,
             maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
           });
@@ -414,20 +455,22 @@ export async function executeNftBatch(
           throw new Error(`ERC-1155 batch failed: ${msg.slice(0, 100)}`);
         }
       } else {
-        // Multiple different recipients — use multisendErc1155
+        // Multiple different recipients — use multisendERC1155
         try {
           const recipients = groupRows.map((r) => r.recipientAddress as Address);
           const ids        = groupRows.map((r) => BigInt(r.tokenId));
           const amounts    = groupRows.map((r) => BigInt(r.amount || "1"));
           const rowIds     = groupRows.map((r) => r.id);
+          const batchFee   = getNftMultisendFee(groupRows.length);
 
           const txHash: `0x${string}` = await walletClient.writeContract({
             address: NFT_MULTISEND_ADDRESS,
             abi: NFT_MULTISEND_ABI,
-            functionName: "multisendErc1155",
+            functionName: "multisendERC1155",
             args: [contract, recipients, ids, amounts],
             account,
             chain: arcTestnet,
+            value: batchFee,
             maxFeePerGas: ARC_MAX_FEE_PER_GAS,
             maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
           });
