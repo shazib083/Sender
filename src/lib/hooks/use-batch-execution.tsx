@@ -1,9 +1,12 @@
 // ============================================================
-// lib/hooks/use-batch-execution.ts
-// Hook to drive the batch send flow
+// lib/hooks/use-batch-execution.tsx
+//
+// Exactly 2 wallet interactions per batch:
+//   "signing" — gasless EIP-712 signature popup
+//   "sending" — single tx: permit2.permit() + all transfers
 // ============================================================
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useAccount } from "wagmi";
 import toast from "react-hot-toast";
@@ -15,11 +18,20 @@ import { formatTokenAmount, TOKEN_REGISTRY } from "@/lib/blockchain/tokens";
 import { getExplorerTxUrl } from "@/lib/blockchain/provider";
 import type { RecipientRow, RowStatus, TokenSymbol } from "@/types";
 
+export type BatchPhase =
+  | "idle"
+  | "validating"
+  | "signing"   // gasless EIP-712 PermitBatch signature
+  | "sending"   // single tx: permit inside contract + all transfers
+  | "done"
+  | "failed";
+
 export function useBatchExecution() {
   const { address } = useAccount();
   const { rows, setBatchStatus, setRowStatus, getSummary } = useBatchStore();
   const addRecord = useHistoryStore((s) => s.addRecord);
-  const balances = useBalanceMap();
+  const balances  = useBalanceMap();
+  const [batchPhase, setBatchPhase] = useState<BatchPhase>("idle");
 
   const onProgress = useCallback(
     (rowId: string, status: RowStatus, txHash?: string) => {
@@ -35,8 +47,10 @@ export function useBatchExecution() {
       const validRows = rows.filter((r) => r.address && r.amount);
       if (validRows.length === 0) throw new Error("No valid recipients");
 
-      // --- Validate ---
+      // ── Validate ───────────────────────────────────────────
+      setBatchPhase("validating");
       setBatchStatus("simulating");
+
       const validation = await validateBatch(validRows, address, balances);
       if (!validation.valid) {
         for (const [rowId, msg] of Object.entries(validation.errors)) {
@@ -45,11 +59,20 @@ export function useBatchExecution() {
         throw new Error("Validation failed. Check highlighted rows.");
       }
 
-      // --- Execute ---
-      setBatchStatus("executing");
-      const result = await executeBatch(validRows, onProgress);
+      // ── Popup 1: sign ─────────────────────────────────────
+      setBatchPhase("signing");
+      setBatchStatus("approving");
 
-      // --- Record in history ---
+      const result = await executeBatch(
+        validRows,
+        onProgress,
+        (phase) => {
+          setBatchPhase(phase);
+          setBatchStatus(phase === "signing" ? "approving" : "executing");
+        }
+      );
+
+      // ── History ────────────────────────────────────────────
       const summary = getSummary();
       const totalByToken: Record<string, string> = {};
       for (const [sym, amount] of Object.entries(summary.totalByToken)) {
@@ -58,47 +81,55 @@ export function useBatchExecution() {
       }
 
       addRecord({
-        id: uuidv4(),
-        batchId: uuidv4(),
-        txHash: result.txHash,
-        status: "confirmed",
+        id:             uuidv4(),
+        batchId:        uuidv4(),
+        txHash:         result.txHash,
+        status:         "confirmed",
         recipientCount: validRows.length,
         totalByToken,
-        timestamp: new Date(),
-        networkName: "Arc Testnet",
-        from: address,
+        timestamp:      new Date(),
+        networkName:    "Arc Testnet",
+        from:           address,
       });
 
+      setBatchPhase("done");
       setBatchStatus("done");
       return result;
     },
+
     onSuccess: (result) => {
-      const url = getExplorerTxUrl(result.txHash);
       toast.success(
         <span>
           Batch sent!{" "}
-          <a href={url} target="_blank" rel="noopener" className="underline">
+          <a
+            href={getExplorerTxUrl(result.txHash)}
+            target="_blank"
+            rel="noopener"
+            className="underline"
+          >
             View tx
           </a>
         </span>,
         { duration: 8000 }
       );
     },
+
     onError: (err: Error) => {
+      setBatchPhase("failed");
       setBatchStatus("failed");
       toast.error(err.message ?? "Batch execution failed");
     },
   });
 
   const estimateGas = useCallback(async () => {
-    const validRows = rows.filter((r) => r.address && r.amount);
-    return estimateBatchGas(validRows);
+    return estimateBatchGas(rows.filter((r) => r.address && r.amount));
   }, [rows]);
 
   return {
-    execute: mutation.mutate,
+    execute:     mutation.mutate,
     isExecuting: mutation.isPending,
-    error: mutation.error,
+    error:       mutation.error,
+    batchPhase,
     estimateGas,
   };
 }
