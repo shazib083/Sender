@@ -5,7 +5,7 @@ import {
   ShieldCheck, PenLine, Send,
   CheckCircle2, Loader2,
 } from "lucide-react";
-import { useAccount } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import { useBatchStore } from "@/lib/store/batch-store";
 import { useBatchExecution, type BatchPhase } from "@/lib/hooks/use-batch-execution";
 import { usePermit2Setup } from "@/lib/hooks/use-permit2-setup";
@@ -24,13 +24,13 @@ const STEPS: { phase: BatchPhase; label: string; sub: string; icon: React.Elemen
   {
     phase: "signing",
     label: "Sign permit",
-    sub:   "Gasless — covers all tokens, no gas fee",
+    sub:   "Gasless - covers all tokens, no gas fee",
     icon:  PenLine,
   },
   {
     phase: "sending",
     label: "Send batch",
-    sub:   "One tx — permit + all transfers together",
+    sub:   "One tx - permit + all transfers together",
     icon:  Send,
   },
 ];
@@ -103,10 +103,10 @@ function Permit2Banner({ tokenCount, setupDone }: { tokenCount: number; setupDon
     <div className="flex items-start gap-2.5 rounded-xl border border-brand-500/30 bg-brand-500/8 px-4 py-3">
       <ShieldCheck className="h-4 w-4 shrink-0 text-brand-400 mt-0.5" />
       <div className="space-y-0.5">
-        <p className="text-xs font-semibold text-brand-300">Powered by Permit2</p>
+        <p className="text-xs font-semibold text-brand-300">Permit2 Auth.</p>
         <p className="text-xs text-brand-400/80 leading-relaxed">
           {setupDone
-            ? "1 signature + 1 transaction — all tokens, all recipients."
+            ? "1 Sign + 1 Transfer"
             : "Completing one-time Permit2 setup…"}
         </p>
       </div>
@@ -118,7 +118,7 @@ function Permit2Banner({ tokenCount, setupDone }: { tokenCount: number; setupDon
 function ButtonLabel({ phase, isExecuting, setupDone }: {
   phase: BatchPhase; isExecuting: boolean; setupDone: boolean;
 }) {
-  if (!setupDone)           return <><Zap className="h-4 w-4" />Setup in Progress…</>;
+  if (!setupDone)             return <><Zap className="h-4 w-4" />Setup in Progress…</>;
   if (!isExecuting)         return <><Zap className="h-4 w-4" />Execute Batch</>;
   if (phase === "validating") return <>Validating…</>;
   if (phase === "signing")    return <><PenLine className="h-4 w-4 animate-pulse" />Waiting for signature…</>;
@@ -129,12 +129,13 @@ function ButtonLabel({ phase, isExecuting, setupDone }: {
 // ── Main SummaryPanel ─────────────────────────────────────────
 export function SummaryPanel() {
   const { rows, batchStatus, getSummary } = useBatchStore();
-  const { isConnected }                  = useAccount();
-  const { execute, isExecuting, batchPhase, estimateGas } = useBatchExecution();
-  const { status: setupStatus, tokensRemaining }           = usePermit2Setup();
-  const { data: balances }                                 = useTokenBalances();
-  const [gasEst, setGasEst]                               = useState<bigint | null>(null);
-  const [batchId]                                         = useState(() => uuidv4());
+  const { isConnected } = useAccount();
+  const publicClient = usePublicClient();
+  const { execute, isExecuting, batchPhase } = useBatchExecution();
+  const { status: setupStatus, tokensRemaining } = usePermit2Setup();
+  const { data: balances } = useTokenBalances();
+  const [gasPrice, setGasPrice] = useState<bigint | null>(null);
+  const [batchId] = useState(() => uuidv4());
 
   const summary     = getSummary();
   const validRows   = rows.filter((r) => r.address && r.amount);
@@ -147,11 +148,47 @@ export function SummaryPanel() {
   const feeWei   = computeFeeWei(validRows.length);
 
   useEffect(() => {
-    if (validRows.length === 0) { setGasEst(null); return; }
-    const t = setTimeout(async () => { setGasEst(await estimateGas()); }, 800);
+    if (validRows.length === 0 || !publicClient) {
+      setGasPrice(null);
+      return;
+    }
+
+    const t = setTimeout(async () => {
+      try {
+        // Latest block fee data
+        const feeHistory = await publicClient.request({
+          method: "eth_feeHistory",
+          params: ["0x1", "latest", [50]],
+        });
+
+        const baseFee = BigInt(
+          feeHistory.baseFeePerGas[
+            feeHistory.baseFeePerGas.length - 1
+          ]
+        );
+
+        // median priority fee
+        const priorityFee = BigInt(
+          feeHistory.reward[0][0]
+        );
+
+        // recommended gas price
+        setGasPrice(baseFee + priorityFee);
+        const recommended = ((baseFee + priorityFee) * 120n) / 100n;
+        setGasPrice(recommended);
+      } catch (error) {
+        try {
+          // fallback
+          const price = await publicClient.getGasPrice();
+          setGasPrice(price);
+        } catch {
+          setGasPrice(null);
+        }
+      }
+    }, 800);
+
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [validRows.length]);
+  }, [validRows.length, publicClient]);
 
   const summaryEntries = Object.entries(summary.totalByToken) as [TokenSymbol, bigint][];
 
@@ -176,7 +213,6 @@ export function SummaryPanel() {
       </div>
 
       <div className="p-5 space-y-3">
-
         {/* Token totals */}
         {summaryEntries.length === 0 ? (
           <div className="rounded-xl bg-surface-200 p-4 text-center text-sm text-gray-500">
@@ -238,13 +274,14 @@ export function SummaryPanel() {
         )}
 
         {/* Gas estimate */}
-        {gasEst !== null && gasEst > 0n && (
+        {gasPrice !== null && (
           <div className="flex items-center justify-between rounded-xl border border-surface-300 bg-surface-200 px-4 py-3">
             <span className="flex items-center gap-1.5 text-sm text-gray-400">
-              <TrendingUp className="h-3.5 w-3.5" /> Est. Gas
+              <TrendingUp className="h-3.5 w-3.5" />
+              Est. Gas
             </span>
             <span className="text-sm font-mono text-gray-300">
-              {gasEst.toLocaleString()} units
+              {(Number(gasPrice) / 1e9).toFixed(1)} Gwei
             </span>
           </div>
         )}
