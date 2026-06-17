@@ -167,10 +167,8 @@ export function SummaryPanel() {
           ]
         );
 
-        // median priority fee
-        const priorityFee = BigInt(
-          feeHistory.reward[0][0]
-        );
+        // Safely access multi-dimensional array with optional chaining and fallback
+        const priorityFee = BigInt(feeHistory.reward?.[0]?.[0] ?? 0);
 
         // recommended gas price
         setGasPrice(baseFee + priorityFee);
