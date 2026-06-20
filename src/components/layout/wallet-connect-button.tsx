@@ -2,18 +2,17 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
-import { useArcName } from "@/lib/hooks/use-arc-name";
 import { Wallet, ChevronDown, LogOut, Copy, Check, ExternalLink, AlertTriangle, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/utils";
 import { truncateAddress } from "@/lib/utils/validation";
-import { getExplorerAddressUrl, arcTestnet } from "@/lib/blockchain/provider";
+import { getExplorerAddressUrl, arcTestnet, getChainMeta, isSupportedChain } from "@/lib/blockchain/provider";
 import toast from "react-hot-toast";
 
 export function WalletConnectButton() {
   const { address, isConnected, isConnecting } = useAccount();
-  const { displayName } = useArcName(address);
+  const displayName = address ? truncateAddress(address) : "";
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
@@ -39,7 +38,7 @@ export function WalletConnectButton() {
     };
   }, [showModal]);
 
-  const isWrongNetwork = isConnected && chainId !== arcTestnet.id;
+  const isWrongNetwork = isConnected && !isSupportedChain(chainId);
 
   const handleCopy = async () => {
     if (!address) return;
@@ -199,7 +198,7 @@ export function WalletConnectButton() {
           sideOffset={6}
         >
           <div className="px-3 py-2 border-b border-surface-300 mb-1">
-            <p className="text-xs text-gray-500">Connected to Arc Testnet</p>
+            <p className="text-xs text-gray-500">Connected to {getChainMeta(chainId).chain.name}</p>
             <p className="font-mono text-sm text-white mt-0.5">
               {displayName}
             </p>
@@ -220,7 +219,7 @@ export function WalletConnectButton() {
           <DropdownMenu.Item
             className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 outline-none hover:bg-surface-300 hover:text-white"
             onClick={() =>
-              window.open(getExplorerAddressUrl(address ?? ""), "_blank")
+              window.open(getExplorerAddressUrl(address ?? "", chainId), "_blank")
             }
           >
             <ExternalLink className="h-4 w-4" />

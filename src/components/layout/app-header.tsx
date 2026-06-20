@@ -5,13 +5,16 @@ import { Moon, Sun, LayoutDashboard, History, BookOpen, Droplet } from "lucide-r
 import { cn } from "@/components/ui/utils";
 import { useBatchStore } from "@/lib/store/batch-store";
 import { WalletConnectButton } from "./wallet-connect-button";
-import { Button } from "@/components/ui/button";
+import { NetworkSwitchButton } from "./network-switch-button";
 
 const NAV_LINKS = [
   { href: "/app",              label: "Dashboard", icon: LayoutDashboard },
   { href: "/app/history",      label: "History",   icon: History          },
   { href: "/app/docs",         label: "Docs",      icon: BookOpen         },
 ];
+
+// Faucet link — kept unchanged.
+const FAUCET_URL = "https://faucet.circle.com/";
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -40,25 +43,48 @@ export function AppHeader() {
           <span className={theme === "light" ? "text-[#2a2a27] font-bold" : "gradient-text"}>Sender</span>
         </Link>
 
+        {/* Center: Nav + Faucet (Faucet sits in the middle of the header) */}
+        <div className="flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-1">
+            {NAV_LINKS.map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200",
+                  pathname === href
+                    ? "bg-surface-300 text-white"
+                    : "text-gray-400 hover:text-white hover:bg-surface-200"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </Link>
+            ))}
+          </nav>
 
-        {/* Nav */}
-        <nav className="hidden md:flex items-center gap-1">
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
+          {/* Faucet Button — transparent background, theme-aware droplet icon, link unchanged */}
+          <a
+            href={FAUCET_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg bg-transparent px-3 py-2 text-sm font-medium transition-colors duration-200",
+              theme === "light"
+                ? "text-[#2a2a27] hover:bg-surface-200"
+                : "text-gray-200 hover:bg-surface-200"
+            )}
+            aria-label="Open faucet"
+          >
+            <Droplet
               className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200",
-                pathname === href
-                  ? "bg-surface-300 text-white"
-                  : "text-gray-400 hover:text-white hover:bg-surface-200"
+                "h-4 w-4",
+                theme === "light" ? "text-sky-600" : "text-sky-400"
               )}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </Link>
-          ))}
-        </nav>
+            />
+            <span className="hidden sm:inline">Faucet</span>
+          </a>
+        </div>
 
         {/* Right actions */}
         <div className="flex items-center gap-2 sm:gap-3">
@@ -80,23 +106,8 @@ export function AppHeader() {
             }
           </button>
 
-          {/* Faucet Button */}
-          <a
-            href="https://faucet.circle.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            tabIndex={-1}
-          >
-            <Button
-              variant="primary"
-              size="sm"
-              className="h-8 w-8 px-0 sm:w-auto sm:px-3"
-              aria-label="Open faucet"
-            >
-              <Droplet className="h-4 w-4" />
-              <span className="hidden sm:inline">Faucet</span>
-            </Button>
-          </a>
+          {/* Network switcher (replaces the old Faucet position) */}
+          <NetworkSwitchButton />
 
           <WalletConnectButton />
         </div>

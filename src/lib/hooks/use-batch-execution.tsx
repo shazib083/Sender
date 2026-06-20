@@ -2,8 +2,8 @@
 // lib/hooks/use-batch-execution.tsx
 //
 // Exactly 2 wallet interactions per batch:
-//   "signing" — gasless EIP-712 signature popup
-//   "sending" — single tx: permit2.permit() + all transfers
+//   "approving" — Popup 1: Multicall3From batch-approve (exact amounts)
+//   "sending"   — Popup 2: multisendMultiToken (transferFrom + native USDC)
 // ============================================================
 
 import { useCallback, useState } from "react";
@@ -21,8 +21,8 @@ import type { RecipientRow, RowStatus, TokenSymbol } from "@/types";
 export type BatchPhase =
   | "idle"
   | "validating"
-  | "signing"   // gasless EIP-712 PermitBatch signature
-  | "sending"   // single tx: permit inside contract + all transfers
+  | "approving" // Popup 1: Multicall3From batch approve (exact amounts)
+  | "sending"   // Popup 2: multisendMultiToken — transferFrom + native USDC
   | "done"
   | "failed";
 
@@ -47,7 +47,7 @@ export function useBatchExecution() {
       const validRows = rows.filter((r) => r.address && r.amount);
       if (validRows.length === 0) throw new Error("No valid recipients");
 
-      // ── Validate ───────────────────────────────────────────
+      // ── Validate ──────────────────────────────────────────────────
       setBatchPhase("validating");
       setBatchStatus("simulating");
 
@@ -59,8 +59,8 @@ export function useBatchExecution() {
         throw new Error("Validation failed. Check highlighted rows.");
       }
 
-      // ── Popup 1: sign ─────────────────────────────────────
-      setBatchPhase("signing");
+      // ── Popup 1: approve, Popup 2: send ───────────────────────────
+      setBatchPhase("approving");
       setBatchStatus("approving");
 
       const result = await executeBatch(
@@ -68,11 +68,11 @@ export function useBatchExecution() {
         onProgress,
         (phase) => {
           setBatchPhase(phase);
-          setBatchStatus(phase === "signing" ? "approving" : "executing");
+          setBatchStatus(phase === "approving" ? "approving" : "executing");
         }
       );
 
-      // ── History ────────────────────────────────────────────
+      // ── History ───────────────────────────────────────────────────
       const summary = getSummary();
       const totalByToken: Record<string, string> = {};
       for (const [sym, amount] of Object.entries(summary.totalByToken)) {

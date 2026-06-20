@@ -195,25 +195,9 @@ NEXT_PUBLIC_EURC_CONTRACT_ADDRESS=0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a`}</
         </ul>
       </DocSection>
 
-      {/* ── Arc Name Hub ── */}
-      <DocSection title="8. Arc Name Hub (.arc Names)" icon={<Globe className="h-4 w-4 text-brand-400" />}>
-        <p className="text-sm text-gray-400 mb-3">
-          Connected wallets with a registered <code className="code">.arc</code> name (via{" "}
-          <a href="https://arcnamehub.xyz" target="_blank" rel="noopener" className="text-brand-400 hover:underline">
-            arcnamehub.xyz
-          </a>
-          ) display their name instead of the raw address in the wallet button.
-        </p>
-        <CodeBlock>{`// src/lib/hooks/use-arc-name.ts
-// Calls reverseLookup(address) on the ArcNameHub contract
-// Returns "yourname.arc" or falls back to truncated address`}</CodeBlock>
-        <InfoBox type="info" className="mt-3">
-          No API key required — resolved directly on-chain via the ArcNameHub smart contract.
-        </InfoBox>
-      </DocSection>
 
       {/* ── CSV Format ── */}
-      <DocSection title="9. CSV Format" icon={<FileText className="h-4 w-4 text-brand-400" />}>
+      <DocSection title="8. CSV Format" icon={<FileText className="h-4 w-4 text-brand-400" />}>
         <p className="text-sm text-gray-400 mb-3">
           Upload or paste CSV in this format for token transfers:
         </p>
@@ -243,7 +227,7 @@ NEXT_PUBLIC_EURC_CONTRACT_ADDRESS=0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a`}</
       </DocSection>
 
       {/* ── Vercel Deployment ── */}
-      <DocSection title="10. Deployment to Vercel" icon={<GitBranch className="h-4 w-4 text-brand-400" />}>
+      <DocSection title="9. Deployment to Vercel" icon={<GitBranch className="h-4 w-4 text-brand-400" />}>
         <CodeBlock>{`# Install Vercel CLI
 npm i -g vercel
 
@@ -261,7 +245,7 @@ vercel env add CIRCLE_ENTITY_SECRET production`}</CodeBlock>
       </DocSection>
 
       {/* ── Security Checklist ── */}
-      <DocSection title="11. Security Checklist" icon={<Shield className="h-4 w-4 text-brand-400" />}>
+      <DocSection title="10. Security Checklist" icon={<Shield className="h-4 w-4 text-brand-400" />}>
         <ul className="space-y-2">
           {SECURITY_ITEMS.map((item) => (
             <li key={item} className="flex items-start gap-2 text-sm text-gray-400">
@@ -273,7 +257,7 @@ vercel env add CIRCLE_ENTITY_SECRET production`}</CodeBlock>
       </DocSection>
 
       {/* ── Architecture ── */}
-      <DocSection title="12. Project Architecture" icon={<Code2 className="h-4 w-4 text-brand-400" />}>
+      <DocSection title="11. Project Architecture" icon={<Code2 className="h-4 w-4 text-brand-400" />}>
         <pre className="overflow-x-auto rounded-xl border border-surface-400 bg-surface-200 p-4 text-xs text-gray-300 leading-relaxed">
 {`src/
 ├── app/
@@ -304,7 +288,6 @@ vercel env add CIRCLE_ENTITY_SECRET production`}</CodeBlock>
 │   ├── hooks/
 │   │   ├── use-token-balances   # On-chain token balances
 │   │   ├── use-batch-execution  # Validate + execute batch
-│   │   ├── use-arc-name         # .arc name resolution
 │   │   └── use-wallet-nfts      # NFT holdings via Blockscout
 │   ├── store/
 │   │   └── batch-store.ts       # Zustand state
@@ -468,7 +451,6 @@ const RESOURCES = [
   { label: "Arc Network Docs", desc: "docs.arc.network", url: "https://docs.arc.network" },
   { label: "Circle Developer Portal", desc: "developers.circle.com", url: "https://developers.circle.com" },
   { label: "Arc Block Explorer", desc: "testnet.arcscan.app", url: "https://testnet.arcscan.app" },
-  { label: "Arc Name Hub", desc: "arcnamehub.xyz", url: "https://arcnamehub.xyz" },
   { label: "WalletConnect Docs", desc: "docs.walletconnect.com", url: "https://docs.walletconnect.com" },
   { label: "Circle Testnet Faucet", desc: "Get testnet USDC/EURC", url: "https://faucet.circle.com" },
 ];

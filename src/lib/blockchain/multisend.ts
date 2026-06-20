@@ -1,25 +1,38 @@
 // ============================================================
 // lib/blockchain/multisend.ts
 //
-// TRUE 2-INTERACTION FLOW (after one-time Permit2 setup):
-//   Popup 1 — signTypedData(PermitBatch) — gasless, no gas
-//   Popup 2 — multisendPermit2() — permit + all transfers in 1 tx
+// TRUE 2-INTERACTION FLOW (Permit2 fully removed):
+//   Popup 1 — Multicall3From.aggregate3(): ONE tx that batches an
+//             ERC-20 approve(MultiSend, EXACT_amount) for every token
+//             in the batch. Multicall3From routes each subcall through
+//             Arc's CallFrom precompile, so each approval is registered
+//             with msg.sender == the user (not the Multicall contract).
+//             => exact-amount allowances only, NEVER unlimited.
+//   Popup 2 — multisendMultiToken(): pulls each ERC-20 via transferFrom
+//             and forwards native USDC via msg.value, in a single tx.
 //
-// FEE LOGIC (matches contract):
+// Native USDC on Arc is the gas token. The ArcSender contract sends it
+// using msg.value (18-decimal wei) instead of transferFrom, so USDC rows
+// require NO approval — only the wei value is attached to popup 2.
+//
+// FEE LOGIC (matches contract getFee):
 //   1–50   recipients → 0 (free)
 //   51–100 recipients → 5e16 wei (0.05 USDC)
 //   101–200 recipients → 1e17 wei (0.10 USDC)
 //
-//   Arc Testnet: native USDC msg.value is in 18-decimal wei.
-//   1 USDC (6-dec ERC20) = 1e18 wei as native.
-//   Frontend computes fee in wei and passes as value.
+// All on-chain addresses are read from environment variables so they can
+// be changed without touching code:
+//   NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS  — deployed ArcSender contract
+//   NEXT_PUBLIC_MULTICALL3FROM_ADDRESS      — Arc Multicall3From extension
+//   NEXT_PUBLIC_USDC_CONTRACT_ADDRESS       — native USDC (handled via value)
 // ============================================================
 
 import {
   type Address,
   type WalletClient,
   type PublicClient,
-  maxUint160,
+  encodeFunctionData,
+  parseGwei,
 } from "viem";
 import {
   arcTestnet,
@@ -38,13 +51,12 @@ import {
   type TokenSymbol,
   type TxReceiptResult,
 } from "@/types";
-import { parseGwei } from "viem";
 
-// ── Gas ───────────────────────────────────────────────────────
+// ── Gas ───────────────────────────────────────────────────────────────
 const ARC_MAX_FEE_PER_GAS  = parseGwei("200");
 const ARC_MAX_PRIORITY_FEE = parseGwei("1");
 
-// ── Fee constants (must match contract) ───────────────────────
+// ── Fee constants (must match contract) ───────────────────────────────
 // Arc native USDC: msg.value in 18-decimal wei
 const FREE_TIER_MAX = 50;
 const MID_TIER_MAX  = 100;
@@ -63,67 +75,47 @@ export function getFeeLabel(recipientCount: number): string {
   return "0.10 USDC";
 }
 
-// ── Permit2 ───────────────────────────────────────────────────
-const PERMIT2_ADDRESS: Address = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+// ── Addresses from env (changeable without code edits) ────────────────
+function requireAddress(value: string | undefined, name: string): Address {
+  if (!value || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+    throw new Error(`❌ ${name} is missing or invalid. Set it in your .env file.`);
+  }
+  return value as Address;
+}
 
-const PERMIT2_ABI = [
-  {
-    name: "allowance",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "owner",   type: "address" },
-      { name: "token",   type: "address" },
-      { name: "spender", type: "address" },
-    ],
-    outputs: [
-      { name: "amount",     type: "uint160" },
-      { name: "expiration", type: "uint48"  },
-      { name: "nonce",      type: "uint48"  },
-    ],
-  },
-] as const;
+export const MULTISEND_CONTRACT_ADDRESS = requireAddress(
+  process.env.NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS,
+  "NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS"
+);
 
-const PERMIT_BATCH_TYPES = {
-  PermitBatch: [
-    { name: "details",     type: "PermitDetails[]" },
-    { name: "spender",     type: "address"         },
-    { name: "sigDeadline", type: "uint256"         },
-  ],
-  PermitDetails: [
-    { name: "token",      type: "address" },
-    { name: "amount",     type: "uint160" },
-    { name: "expiration", type: "uint48"  },
-    { name: "nonce",      type: "uint48"  },
-  ],
-} as const;
+export const MULTICALL3FROM_ADDRESS = requireAddress(
+  process.env.NEXT_PUBLIC_MULTICALL3FROM_ADDRESS,
+  "NEXT_PUBLIC_MULTICALL3FROM_ADDRESS"
+);
 
-// ── MultiSend ABI ─────────────────────────────────────────────
+// Native USDC address — handled via msg.value by the contract, so it is
+// never approved or pulled via transferFrom. Falls back to the registry
+// value when the env var is unset/placeholder.
+const _usdcEnv = process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS;
+export const NATIVE_USDC_ADDRESS: Address =
+  _usdcEnv &&
+  /^0x[0-9a-fA-F]{40}$/.test(_usdcEnv) &&
+  _usdcEnv !== "0x0000000000000000000000000000000000000000"
+    ? (_usdcEnv as Address)
+    : (TOKEN_REGISTRY.USDC.address as Address);
+
+function isNativeUsdc(addr: Address): boolean {
+  return addr.toLowerCase() === NATIVE_USDC_ADDRESS.toLowerCase();
+}
+
+// ── ABIs ──────────────────────────────────────────────────────────────
+// Deployed ArcSender contract (see contracts/MultiSend.sol)
 export const MULTISEND_ABI = [
   {
-    name: "multisendPermit2",
+    name: "multisendMultiToken",
     type: "function",
     stateMutability: "payable",
     inputs: [
-      {
-        name: "permitBatch",
-        type: "tuple",
-        components: [
-          {
-            name: "details",
-            type: "tuple[]",
-            components: [
-              { name: "token",      type: "address" },
-              { name: "amount",     type: "uint160" },
-              { name: "expiration", type: "uint48"  },
-              { name: "nonce",      type: "uint48"  },
-            ],
-          },
-          { name: "spender",     type: "address" },
-          { name: "sigDeadline", type: "uint256" },
-        ],
-      },
-      { name: "signature",  type: "bytes"     },
       { name: "tokens",     type: "address[]" },
       { name: "recipients", type: "address[]" },
       { name: "amounts",    type: "uint256[]" },
@@ -140,19 +132,45 @@ export const MULTISEND_ABI = [
   },
 ] as const;
 
-const contractAddr = process.env
-  .NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS as Address | undefined;
-if (!contractAddr) throw new Error("❌ NEXT_PUBLIC_MULTISEND_CONTRACT_ADDRESS not set");
-export const MULTISEND_CONTRACT_ADDRESS = contractAddr;
+// Arc Multicall3From — same shape as Multicall3.aggregate3, but preserves
+// the original msg.sender in every subcall via the CallFrom precompile.
+export const MULTICALL3FROM_ABI = [
+  {
+    name: "aggregate3",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      {
+        name: "calls",
+        type: "tuple[]",
+        components: [
+          { name: "target",       type: "address" },
+          { name: "allowFailure", type: "bool"    },
+          { name: "callData",     type: "bytes"   },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "returnData",
+        type: "tuple[]",
+        components: [
+          { name: "success",    type: "bool"  },
+          { name: "returnData", type: "bytes" },
+        ],
+      },
+    ],
+  },
+] as const;
 
 export const MAX_BATCH_SIZE = 200;
 
-// ── Gas estimation ────────────────────────────────────────────
+// ── Gas estimation ────────────────────────────────────────────────────
 export async function estimateBatchGas(rows: RecipientRow[]): Promise<bigint> {
   return BigInt(rows.length) * BigInt(90000);
 }
 
-// ── Validation ────────────────────────────────────────────────
+// ── Validation ────────────────────────────────────────────────────────
 export interface ValidationResult {
   valid: boolean;
   errors: Record<string, string>;
@@ -201,20 +219,7 @@ export async function validateBatch(
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-function getUniqueTokenAddresses(rows: RecipientRow[]): Address[] {
-  const seen = new Set<string>();
-  const addrs: Address[] = [];
-  for (const row of rows) {
-    const token = TOKEN_REGISTRY[row.tokenSymbol];
-    if (token?.address && !seen.has(token.address.toLowerCase())) {
-      seen.add(token.address.toLowerCase());
-      addrs.push(token.address as Address);
-    }
-  }
-  return addrs;
-}
-
+// ── Helpers ───────────────────────────────────────────────────────────
 function buildArrays(rows: RecipientRow[]): {
   tokenAddresses: Address[];
   recipients:     Address[];
@@ -234,68 +239,139 @@ function buildArrays(rows: RecipientRow[]): {
   return { tokenAddresses, recipients, amounts };
 }
 
-// ── Sign PermitBatch — POPUP 1 (gasless) ─────────────────────
-async function signPermitBatch(
-  tokenAddresses: Address[],
+/**
+ * Exact ERC-20 allowance required per token for this batch.
+ * Native USDC is excluded — the contract forwards it via msg.value, so it
+ * is never pulled with transferFrom and needs no approval.
+ */
+function computeApprovalTotals(rows: RecipientRow[]): { address: Address; total: bigint }[] {
+  const map = new Map<string, { address: Address; total: bigint }>();
+  for (const row of rows) {
+    const token = TOKEN_REGISTRY[row.tokenSymbol];
+    if (!token?.address) continue;
+    const addr = token.address as Address;
+    if (isNativeUsdc(addr)) continue; // native USDC → msg.value, no approval
+    const amount = parseTokenAmount(String(row.amount ?? "").trim(), token.decimals);
+    const key = addr.toLowerCase();
+    const prev = map.get(key);
+    if (prev) prev.total += amount;
+    else map.set(key, { address: addr, total: amount });
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * msg.value attached to popup 2:
+ *   protocol fee (wei) + every native-USDC amount converted to 18-dec wei.
+ */
+export function computeMsgValueWei(rows: RecipientRow[]): bigint {
+  let total = computeFeeWei(rows.length);
+  for (const row of rows) {
+    const token = TOKEN_REGISTRY[row.tokenSymbol];
+    if (token?.address && isNativeUsdc(token.address as Address)) {
+      const amount6 = parseTokenAmount(String(row.amount ?? "").trim(), token.decimals);
+      total += amount6 * 10n ** 12n; // 6-dec USDC units → 18-dec native wei
+    }
+  }
+  return total;
+}
+
+// ── POPUP 1: batch-approve EXACT amounts via Multicall3From ────────────
+async function approveAllTokensBatch(
+  rows: RecipientRow[],
   account: Address,
   walletClient: WalletClient,
   publicClient: PublicClient
-): Promise<{
-  permitBatch: {
-    details: { token: Address; amount: bigint; expiration: number; nonce: number }[];
-    spender: Address;
-    sigDeadline: bigint;
-  };
-  signature: `0x${string}`;
-}> {
-  const expiration  = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
-  const sigDeadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 10);
+): Promise<string | null> {
+  const needed = computeApprovalTotals(rows);
 
-  const details = await Promise.all(
-    tokenAddresses.map(async (tokenAddress) => {
-      const [, , nonce] = (await publicClient.readContract({
-        address:      PERMIT2_ADDRESS,
-        abi:          PERMIT2_ABI,
-        functionName: "allowance",
-        args:         [account, tokenAddress, MULTISEND_CONTRACT_ADDRESS],
-      })) as [bigint, number, number];
+  // Only approve tokens whose current allowance to the MultiSend contract
+  // is below the exact amount this batch requires. Keeps popups minimal and
+  // guarantees we never request more than what's needed (no unlimited).
+  const calls: { target: Address; allowFailure: boolean; callData: `0x${string}` }[] = [];
 
-      return {
-        token:      tokenAddress,
-        amount:     maxUint160,
-        expiration: expiration,
-        nonce:      nonce,
-      };
-    })
-  );
+  for (const { address, total } of needed) {
+    const current = (await publicClient.readContract({
+      address,
+      abi:          ERC20_ABI,
+      functionName: "allowance",
+      args:         [account, MULTISEND_CONTRACT_ADDRESS],
+    })) as bigint;
 
-  const permitBatch = {
-    details,
-    spender:     MULTISEND_CONTRACT_ADDRESS,
-    sigDeadline,
-  };
+    if (current >= total) continue; // already sufficient for this batch
 
-  const signature = await walletClient.signTypedData({
+    const callData = encodeFunctionData({
+      abi:          ERC20_ABI,
+      functionName: "approve",
+      args:         [MULTISEND_CONTRACT_ADDRESS, total], // EXACT amount, never maxUint
+    });
+
+    calls.push({ target: address, allowFailure: false, callData });
+  }
+
+  if (calls.length === 0) {
+    console.log("✅ No approvals required (sufficient allowance / native USDC only)");
+    return null; // no popup needed
+  }
+
+  console.log(`Batch-approving ${calls.length} token(s) via Multicall3From (exact amounts)`);
+
+  const txHash = await walletClient.writeContract({
+    address:              MULTICALL3FROM_ADDRESS,
+    abi:                  MULTICALL3FROM_ABI,
+    functionName:         "aggregate3",
+    args:                 [calls],
     account,
-    domain: {
-      name:              "Permit2",
-      chainId:           arcTestnet.id,
-      verifyingContract: PERMIT2_ADDRESS,
-    },
-    types:       PERMIT_BATCH_TYPES,
-    primaryType: "PermitBatch",
-    message:     permitBatch,
+    chain:                arcTestnet,
+    maxFeePerGas:         ARC_MAX_FEE_PER_GAS,
+    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
   });
 
-  console.log("✅ PermitBatch signed (gasless)");
-  return { permitBatch, signature };
+  await publicClient.waitForTransactionReceipt({ hash: txHash });
+  console.log("✅ Batched approvals confirmed:", txHash);
+  return txHash;
 }
 
-// ── executeBatch ──────────────────────────────────────────────
+// ── POPUP 2: multisendMultiToken (transferFrom + native USDC) ──────────
+async function executeMultisend(
+  rows: RecipientRow[],
+  account: Address,
+  walletClient: WalletClient,
+  publicClient: PublicClient
+): Promise<{ txHash: string; success: boolean }> {
+  const { tokenAddresses, recipients, amounts } = buildArrays(rows);
+  const msgValue = computeMsgValueWei(rows);
+
+  console.log("multisendMultiToken args:", {
+    tokenAddresses,
+    recipients,
+    amounts: amounts.map(String),
+    msgValue: msgValue.toString(),
+    feeLabel: getFeeLabel(rows.length),
+  });
+
+  const txHash = await walletClient.writeContract({
+    address:              MULTISEND_CONTRACT_ADDRESS,
+    abi:                  MULTISEND_ABI,
+    functionName:         "multisendMultiToken",
+    args:                 [tokenAddresses, recipients, amounts],
+    value:                msgValue, // protocol fee + native USDC amounts
+    account,
+    chain:                arcTestnet,
+    maxFeePerGas:         ARC_MAX_FEE_PER_GAS,
+    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+  });
+
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+  console.log("✅ multisendMultiToken tx:", txHash);
+  return { txHash, success: receipt.status === "success" };
+}
+
+// ── executeBatch — orchestrates the exact 2-popup flow ────────────────
 export async function executeBatch(
   rows: RecipientRow[],
   onProgress: (rowId: string, status: RowStatus, txHash?: string) => void,
-  onPhase?: (phase: "signing" | "sending") => void
+  onPhase?: (phase: "approving" | "sending") => void
 ): Promise<{ txHash: string; success: boolean }> {
   const walletClient = createArcWalletClient();
   const publicClient = createArcPublicClient();
@@ -307,51 +383,23 @@ export async function executeBatch(
 
   rows.forEach((r) => onProgress(r.id, "pending"));
 
-  const uniqueTokens = getUniqueTokenAddresses(rows);
-  const { tokenAddresses, recipients, amounts } = buildArrays(rows);
+  // ── POPUP 1: approve all tokens in one batched transaction ───────────
+  onPhase?.("approving");
+  await approveAllTokensBatch(rows, account, walletClient, publicClient);
 
-  // Compute fee in wei — must be passed as msg.value
-  const feeWei = computeFeeWei(rows.length);
-  console.log(`Fee for ${rows.length} recipients: ${feeWei} wei (${getFeeLabel(rows.length)})`);
-
-  // ── POPUP 1: gasless signature ────────────────────────────
-  onPhase?.("signing");
-  const { permitBatch, signature } = await signPermitBatch(
-    uniqueTokens, account, walletClient, publicClient
+  // ── POPUP 2: distribute tokens + native USDC ─────────────────────────
+  onPhase?.("sending");
+  const { txHash, success } = await executeMultisend(
+    rows, account, walletClient, publicClient
   );
 
-  // ── POPUP 2: permit + send in one tx ─────────────────────
-  onPhase?.("sending");
-
-  console.log("multisendPermit2 args:", {
-    permitBatch,
-    tokenAddresses,
-    recipients,
-    amounts: amounts.map(String),
-    feeWei: feeWei.toString(),
-  });
-
-  const txHash = await walletClient.writeContract({
-    address:              MULTISEND_CONTRACT_ADDRESS,
-    abi:                  MULTISEND_ABI,
-    functionName:         "multisendPermit2",
-    args:                 [permitBatch, signature, tokenAddresses, recipients, amounts],
-    value:                feeWei,   // ← fee passed here — was missing before!
-    account,
-    chain:                arcTestnet,
-    maxFeePerGas:         ARC_MAX_FEE_PER_GAS,
-    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
-  });
-
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-  const rowStatus: RowStatus = receipt.status === "success" ? "success" : "failed";
+  const rowStatus: RowStatus = success ? "success" : "failed";
   rows.forEach((r) => onProgress(r.id, rowStatus, txHash));
-  console.log("✅ multisendPermit2 tx:", txHash);
 
-  return { txHash, success: receipt.status === "success" };
+  return { txHash, success };
 }
 
-// ── Receipt ───────────────────────────────────────────────────
+// ── Receipt ───────────────────────────────────────────────────────────
 export async function getTransactionReceipt(
   txHash: string
 ): Promise<TxReceiptResult> {

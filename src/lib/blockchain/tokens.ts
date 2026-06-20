@@ -78,7 +78,7 @@ export const TOKEN_REGISTRY: Record<TokenSymbol, Token> = {
     symbol: "cirBTC",
     name: "Circle Wrapped Bitcoin",
     decimals: 8,
-    address: "0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF",
+    address: process.env.NEXT_PUBLIC_CIRBTC_CONTRACT_ADDRESS ?? "",
     logoUrl: "/cirbtc.png",
     isNative: false,
   },

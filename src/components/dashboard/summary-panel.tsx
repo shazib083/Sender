@@ -2,13 +2,12 @@
 import { useEffect, useState } from "react";
 import {
   Zap, Info, TrendingUp, Download,
-  ShieldCheck, PenLine, Send,
+  ShieldCheck, CheckCheck, Send,
   CheckCircle2, Loader2,
 } from "lucide-react";
 import { useAccount, usePublicClient } from "wagmi";
 import { useBatchStore } from "@/lib/store/batch-store";
 import { useBatchExecution, type BatchPhase } from "@/lib/hooks/use-batch-execution";
-import { usePermit2Setup } from "@/lib/hooks/use-permit2-setup";
 import { useTokenBalances } from "@/lib/hooks/use-token-balances";
 import { Button } from "@/components/ui/button";
 import { TokenLogo } from "@/components/ui/token-logo";
@@ -19,24 +18,25 @@ import { exportTransactionReport } from "@/lib/utils/csv";
 import type { TokenSymbol } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
-// ── Phase steps ───────────────────────────────────────────────
+// ── Phase steps ───────────────────────────────────────────────────────
+// The two on-chain wallet popups, in order.
 const STEPS: { phase: BatchPhase; label: string; sub: string; icon: React.ElementType }[] = [
   {
-    phase: "signing",
-    label: "Sign permit",
-    sub:   "Gasless - covers all tokens, no gas fee",
-    icon:  PenLine,
+    phase: "approving",
+    label: "Approve tokens",
+    sub:   "Approve exact amounts for all tokens (Multicall3From)",
+    icon:  CheckCheck,
   },
   {
     phase: "sending",
     label: "Send batch",
-    sub:   "One tx - permit + all transfers together",
+    sub:   "Distribute tokens to all recipients",
     icon:  Send,
   },
 ];
 
 function PhaseSteps({ phase }: { phase: BatchPhase }) {
-  if (!["signing", "sending"].includes(phase)) return null;
+  if (!["approving", "sending"].includes(phase)) return null;
   const activeIdx = STEPS.findIndex((s) => s.phase === phase);
 
   return (
@@ -81,58 +81,40 @@ function PhaseSteps({ phase }: { phase: BatchPhase }) {
   );
 }
 
-// ── Setup banner ──────────────────────────────────────────────
-function SetupBanner({ status, tokensRemaining }: { status: string; tokensRemaining: number }) {
-  if (status === "done" || status === "idle") return null;
-  return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-yellow-500/30 bg-yellow-500/8 px-4 py-3">
-      <Loader2 className="h-4 w-4 shrink-0 text-yellow-400 animate-spin" />
-      <p className="text-xs text-yellow-300 leading-relaxed">
-        {status === "checking"
-          ? "Checking Permit2 approvals…"
-          : `One-time setup: ${tokensRemaining} token${tokensRemaining > 1 ? "s" : ""} remaining…`}
-      </p>
-    </div>
-  );
-}
-
-// ── Permit2 banner ────────────────────────────────────────────
-function Permit2Banner({ tokenCount, setupDone }: { tokenCount: number; setupDone: boolean }) {
+// ── Auth model banner ─────────────────────────────────────────────────
+// Explains the 2-step, exact-allowance flow (no Permit2, no unlimited approval).
+function AuthBanner({ tokenCount }: { tokenCount: number }) {
   if (tokenCount === 0) return null;
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-brand-500/30 bg-brand-500/8 px-4 py-3">
       <ShieldCheck className="h-4 w-4 shrink-0 text-brand-400 mt-0.5" />
       <div className="space-y-0.5">
-        <p className="text-xs font-semibold text-brand-300">Permit2 Auth.</p>
+        <p className="text-xs font-semibold text-brand-300">Secure 2-step send</p>
         <p className="text-xs text-brand-400/80 leading-relaxed">
-          {setupDone
-            ? "1 Sign + 1 Transfer"
-            : "Completing one-time Permit2 setup…"}
+          1 Approve + 1 Transfer
         </p>
       </div>
     </div>
   );
 }
 
-// ── Button label ──────────────────────────────────────────────
-function ButtonLabel({ phase, isExecuting, setupDone }: {
-  phase: BatchPhase; isExecuting: boolean; setupDone: boolean;
+// ── Button label ──────────────────────────────────────────────────────
+function ButtonLabel({ phase, isExecuting }: {
+  phase: BatchPhase; isExecuting: boolean;
 }) {
-  if (!setupDone)             return <><Zap className="h-4 w-4" />Setup in Progress…</>;
-  if (!isExecuting)         return <><Zap className="h-4 w-4" />Execute Batch</>;
+  if (!isExecuting)           return <><Zap className="h-4 w-4" />Execute Batch</>;
   if (phase === "validating") return <>Validating…</>;
-  if (phase === "signing")    return <><PenLine className="h-4 w-4 animate-pulse" />Waiting for signature…</>;
+  if (phase === "approving")  return <><CheckCheck className="h-4 w-4 animate-pulse" />Waiting for approval…</>;
   if (phase === "sending")    return <><Send className="h-4 w-4 animate-pulse" />Sending batch…</>;
   return <>Working…</>;
 }
 
-// ── Main SummaryPanel ─────────────────────────────────────────
+// ── Main SummaryPanel ─────────────────────────────────────────────────
 export function SummaryPanel() {
   const { rows, batchStatus, getSummary } = useBatchStore();
   const { isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { execute, isExecuting, batchPhase } = useBatchExecution();
-  const { status: setupStatus, tokensRemaining } = usePermit2Setup();
   const { data: balances } = useTokenBalances();
   const [gasPrice, setGasPrice] = useState<bigint | null>(null);
   const [batchId] = useState(() => uuidv4());
@@ -141,7 +123,6 @@ export function SummaryPanel() {
   const validRows   = rows.filter((r) => r.address && r.amount);
   const hasSentRows = rows.some((r) => r.status === "success" || r.status === "failed");
   const tokenCount  = new Set(validRows.map((r) => r.tokenSymbol)).size;
-  const setupDone   = setupStatus === "done";
 
   // Fee for current batch
   const feeLabel = getFeeLabel(validRows.length);
@@ -197,7 +178,6 @@ export function SummaryPanel() {
   const canExecute =
     isConnected &&
     !isExecuting &&
-    setupDone &&
     validRows.length > 0 &&
     insufficientTokens.length === 0 &&
     !["executing", "approving"].includes(batchStatus ?? "");
@@ -284,12 +264,9 @@ export function SummaryPanel() {
           </div>
         )}
 
-        {/* Setup banner */}
-        <SetupBanner status={setupStatus} tokensRemaining={tokensRemaining} />
-
-        {/* Permit2 banner */}
+        {/* Auth model banner */}
         {!isExecuting && validRows.length > 0 && (
-          <Permit2Banner tokenCount={tokenCount} setupDone={setupDone} />
+          <AuthBanner tokenCount={tokenCount} />
         )}
 
         {/* Phase tracker */}
@@ -300,11 +277,11 @@ export function SummaryPanel() {
           variant="gradient"
           size="lg"
           className="w-full mt-2"
-          loading={isExecuting || ["checking", "approving"].includes(setupStatus)}
+          loading={isExecuting}
           disabled={!canExecute}
           onClick={() => execute()}
         >
-          <ButtonLabel phase={batchPhase} isExecuting={isExecuting} setupDone={setupDone} />
+          <ButtonLabel phase={batchPhase} isExecuting={isExecuting} />
         </Button>
 
         {/* Export */}
