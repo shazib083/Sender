@@ -3,7 +3,7 @@
 // ERC-721 & ERC-1155 ABIs, detection, validation, execution
 // ============================================================
 
-import { type Address, parseGwei } from "viem";
+import { type Address, parseGwei, encodeFunctionData } from "viem";
 import { createArcPublicClient, createArcWalletClient, arcTestnet } from "./provider";
 import type { NftRecipientRow, NftRowStatus, NftStandard } from "@/types/nft";
 
@@ -344,7 +344,50 @@ export async function validateNftBatch(
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
+// ---- Multicall3From (Arc tx extension) — batches subcalls while preserving msg.sender ----
+// Used ONLY when a batch spans MULTIPLE NFT collections, to collapse the flow into exactly
+// two wallet popups (one aggregated approve + one aggregated transfer) — the same architecture
+// the token flow uses. Single-collection batches keep the original direct-call path untouched.
+// Address comes from the same env var the token flow uses.
+const MULTICALL3FROM_ADDRESS = (
+  process.env.NEXT_PUBLIC_MULTICALL3FROM_ADDRESS ?? "0x0000000000000000000000000000000000000000"
+) as Address;
+
+const MULTICALL3FROM_ABI = [
+  {
+    name: "aggregate3",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      {
+        name: "calls",
+        type: "tuple[]",
+        components: [
+          { name: "target",       type: "address" },
+          { name: "allowFailure", type: "bool"    },
+          { name: "callData",     type: "bytes"   },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "returnData",
+        type: "tuple[]",
+        components: [
+          { name: "success",    type: "bool"  },
+          { name: "returnData", type: "bytes" },
+        ],
+      },
+    ],
+  },
+] as const;
+
 // ---- Execute NFT batch via NftMultiSend contract ----
+// • Single collection   → original direct path (1 approve popup + 1 transfer popup), UNCHANGED.
+// • Multiple collections → Multicall3From batches ALL approvals into ONE popup and ALL transfers
+//   into ONE popup. Each subcall is routed through Arc's CallFrom precompile, so msg.sender is
+//   preserved and ArcSender still pulls each NFT from the user. Exactly two popups total —
+//   mirrors the token flow's Multicall3From architecture.
 export async function executeNftBatch(
   rows: NftRecipientRow[],
   onProgress: (rowId: string, status: NftRowStatus, txHash?: string) => void,
@@ -358,16 +401,64 @@ export async function executeNftBatch(
   rows.forEach((r) => onProgress(r.id, "pending"));
 
   const txHashes: `0x${string}`[] = [];
-
-  // Group rows by contractAddress + standard
   const grouped = groupNftRows(rows);
-  const groups = Object.entries(grouped);
+  const groups = Object.entries(grouped) as [string, NftRecipientRow[]][];
 
-  // ── PHASE 1 — Popup: APPROVE ─────────────────────────────────────────────
-  // Ensure NftMultiSend is approved for every NFT contract in the batch.
-  // Mirrors the token flow's "Approve" popup so the UI can green-check this
-  // step before moving on to the transfer popup.
+  // ── SINGLE COLLECTION: keep the proven direct path (behaviour unchanged) ──
+  if (groups.length <= 1) {
+    onPhase?.("approving");
+    await approveCollectionsDirect(groups, account, walletClient, publicClient);
+
+    onPhase?.("sending");
+    await sendGroupsDirect(groups, account, walletClient, publicClient, onProgress, txHashes);
+
+    return { txHashes, success: true };
+  }
+
+  // ── MULTIPLE COLLECTIONS: exactly two popups via Multicall3From ──
+  // Popup 1 — one aggregated approve covering every collection that still needs it.
   onPhase?.("approving");
+  await approveAllCollectionsBatch(groups, account, walletClient, publicClient);
+
+  // Popup 2 — transfers.
+  // Arc's Multicall3From implements aggregate3 (sender-preserving) but NOT aggregate3Value,
+  // so it cannot forward per-subcall value. A batch is therefore aggregated into ONE popup
+  // only when it carries no protocol fee (every collection <= 50 recipients -> getFee == 0).
+  // If any collection exceeds 50 recipients (fee > 0), we fall back to the proven direct
+  // per-collection sends so the fee can be attached as value — correctness over popup count.
+  onPhase?.("sending");
+  const totalFee = groups.reduce(
+    (sum, [key, groupRows]) => sum + buildNftTransferCall(key, groupRows).value,
+    0n
+  );
+
+  if (totalFee === 0n) {
+    try {
+      const txHash = await sendAllTransfersBatch(groups, account, walletClient, publicClient);
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      const status: NftRowStatus = receipt.status === "success" ? "success" : "failed";
+      rows.forEach((r) => onProgress(r.id, status, txHash));
+      txHashes.push(txHash);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      rows.forEach((r) => onProgress(r.id, "failed"));
+      throw new Error(`NFT batch transfer failed: ${msg.slice(0, 140)}`);
+    }
+  } else {
+    // Fee-bearing batch — direct per-collection sends (each attaches its own fee as value).
+    await sendGroupsDirect(groups, account, walletClient, publicClient, onProgress, txHashes);
+  }
+
+  return { txHashes, success: true };
+}
+
+// ── Direct path helpers (single collection — original logic, untouched) ──────
+async function approveCollectionsDirect(
+  groups: [string, NftRecipientRow[]][],
+  account: Address,
+  walletClient: ReturnType<typeof createArcWalletClient>,
+  publicClient: ReturnType<typeof createArcPublicClient>
+): Promise<void> {
   for (const [key] of groups) {
     const [contractAddress, standard] = key.split("::") as [string, NftStandard];
     const contract = contractAddress as Address;
@@ -394,10 +485,16 @@ export async function executeNftBatch(
       await publicClient.waitForTransactionReceipt({ hash: approvalTx });
     }
   }
+}
 
-  // ── PHASE 2 — Popup: TRANSFER ────────────────────────────────────────────
-  // Distribute the NFTs. Mirrors the token flow's "Send batch" popup.
-  onPhase?.("sending");
+async function sendGroupsDirect(
+  groups: [string, NftRecipientRow[]][],
+  account: Address,
+  walletClient: ReturnType<typeof createArcWalletClient>,
+  publicClient: ReturnType<typeof createArcPublicClient>,
+  onProgress: (rowId: string, status: NftRowStatus, txHash?: string) => void,
+  txHashes: `0x${string}`[]
+): Promise<void> {
   for (const [key, groupRows] of groups) {
     const [contractAddress, standard] = key.split("::") as [string, NftStandard];
     const contract = contractAddress as Address;
@@ -501,8 +598,146 @@ export async function executeNftBatch(
       }
     }
   }
+}
 
-  return { txHashes, success: true };
+// ── Multicall3From batch helpers (multiple collections) ─────────────────────
+// Popup 1: one aggregate3 batching setApprovalForAll for every collection NftMultiSend
+//          isn't already approved for. setApprovalForAll is non-payable → no value involved.
+async function approveAllCollectionsBatch(
+  groups: [string, NftRecipientRow[]][],
+  account: Address,
+  walletClient: ReturnType<typeof createArcWalletClient>,
+  publicClient: ReturnType<typeof createArcPublicClient>
+): Promise<`0x${string}` | null> {
+  const seen = new Set<string>();
+  const calls: { target: Address; allowFailure: boolean; callData: `0x${string}` }[] = [];
+
+  for (const [key] of groups) {
+    const [contractAddress, standard] = key.split("::") as [string, NftStandard];
+    const addrKey = contractAddress.toLowerCase();
+    if (seen.has(addrKey)) continue; // approval is per-contract, dedupe
+    seen.add(addrKey);
+
+    const contract = contractAddress as Address;
+    const abi = standard === "ERC721" ? ERC721_ABI : ERC1155_ABI;
+
+    const isApproved = (await publicClient.readContract({
+      address: contract,
+      abi,
+      functionName: "isApprovedForAll",
+      args: [account, NFT_MULTISEND_ADDRESS],
+    })) as boolean;
+
+    if (isApproved) continue;
+
+    calls.push({
+      target: contract,
+      allowFailure: false,
+      callData: encodeFunctionData({
+        abi,
+        functionName: "setApprovalForAll",
+        args: [NFT_MULTISEND_ADDRESS, true],
+      }),
+    });
+  }
+
+  if (calls.length === 0) return null; // every collection already approved — no popup
+
+  const txHash = await walletClient.writeContract({
+    address: MULTICALL3FROM_ADDRESS,
+    abi: MULTICALL3FROM_ABI,
+    functionName: "aggregate3",
+    args: [calls],
+    account,
+    chain: arcTestnet,
+    maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: txHash });
+  return txHash;
+}
+
+// Popup 2: one aggregate3 that batches every collection's transfer call into a single tx.
+//          aggregate3 routes each subcall through the CallFrom precompile (msg.sender preserved,
+//          so ArcSender pulls each NFT from the user). It does NOT forward value, so this path is
+//          only used for fee-free batches (every collection <= 50 recipients); the caller routes
+//          fee-bearing batches to the direct per-collection path instead.
+async function sendAllTransfersBatch(
+  groups: [string, NftRecipientRow[]][],
+  account: Address,
+  walletClient: ReturnType<typeof createArcWalletClient>,
+  _publicClient: ReturnType<typeof createArcPublicClient>
+): Promise<`0x${string}`> {
+  const calls: { target: Address; allowFailure: boolean; callData: `0x${string}` }[] = [];
+
+  for (const [key, groupRows] of groups) {
+    const { callData } = buildNftTransferCall(key, groupRows);
+    calls.push({ target: NFT_MULTISEND_ADDRESS, allowFailure: false, callData });
+  }
+
+  return walletClient.writeContract({
+    address: MULTICALL3FROM_ADDRESS,
+    abi: MULTICALL3FROM_ABI,
+    functionName: "aggregate3",
+    args: [calls],
+    account,
+    chain: arcTestnet,
+    maxFeePerGas: ARC_MAX_FEE_PER_GAS,
+    maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
+  });
+}
+
+// Encodes a single collection group into an ArcSender transfer call + its protocol fee.
+// Mirrors the exact standard/recipient selection used by the direct path.
+function buildNftTransferCall(
+  key: string,
+  groupRows: NftRecipientRow[]
+): { value: bigint; callData: `0x${string}` } {
+  const [contractAddress, standard] = key.split("::") as [string, NftStandard];
+  const contract = contractAddress as Address;
+
+  if (standard === "ERC721") {
+    const recipients = groupRows.map((r) => r.recipientAddress as Address);
+    const tokenIds   = groupRows.map((r) => BigInt(r.tokenId));
+    return {
+      value: getNftMultisendFee(groupRows.length),
+      callData: encodeFunctionData({
+        abi: NFT_MULTISEND_ABI,
+        functionName: "multisendERC721",
+        args: [contract, recipients, tokenIds],
+      }),
+    };
+  }
+
+  const byRecipient = groupBy1155ByRecipient(groupRows);
+  const recipientList = Object.keys(byRecipient);
+
+  if (recipientList.length === 1) {
+    const recipient = recipientList[0] as Address;
+    const recipientRows = byRecipient[recipientList[0]];
+    const ids     = recipientRows.map((r) => BigInt(r.tokenId));
+    const amounts = recipientRows.map((r) => BigInt(r.amount || "1"));
+    return {
+      value: getNftMultisendFee(recipientRows.length),
+      callData: encodeFunctionData({
+        abi: NFT_MULTISEND_ABI,
+        functionName: "batchToOneERC1155",
+        args: [contract, recipient, ids, amounts],
+      }),
+    };
+  }
+
+  const recipients = groupRows.map((r) => r.recipientAddress as Address);
+  const ids        = groupRows.map((r) => BigInt(r.tokenId));
+  const amounts    = groupRows.map((r) => BigInt(r.amount || "1"));
+  return {
+    value: getNftMultisendFee(groupRows.length),
+    callData: encodeFunctionData({
+      abi: NFT_MULTISEND_ABI,
+      functionName: "multisendERC1155",
+      args: [contract, recipients, ids, amounts],
+    }),
+  };
 }
 
 // ---- Helpers ----
