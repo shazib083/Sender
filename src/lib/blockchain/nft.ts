@@ -54,6 +54,25 @@ export const NFT_MULTISEND_ABI = [
     outputs: [],
   },
   {
+    // NEW: mixed multi-collection NFT multisend. Sends ANY mix of ERC-721 /
+    // ERC-1155 collections in one tx and charges the fee ONCE (msg.value) on
+    // the total recipient count. Lets fee-bearing multi-collection batches
+    // collapse into exactly two popups (Arc's Multicall3From has no
+    // aggregate3Value, so the fee is attached directly to this single call).
+    // standards[i]: 0 = ERC721, 1 = ERC1155. amounts ignored for ERC721 rows.
+    name: "multisendMixedNFT",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      { name: "standards",  type: "uint8[]"    },
+      { name: "tokens",     type: "address[]"  },
+      { name: "recipients", type: "address[]"  },
+      { name: "tokenIds",   type: "uint256[]"  },
+      { name: "amounts",    type: "uint256[]"  },
+    ],
+    outputs: [],
+  },
+  {
     name: "InsufficientFee",
     type: "error",
     inputs: [
@@ -420,33 +439,25 @@ export async function executeNftBatch(
   onPhase?.("approving");
   await approveAllCollectionsBatch(groups, account, walletClient, publicClient);
 
-  // Popup 2 — transfers.
-  // Arc's Multicall3From implements aggregate3 (sender-preserving) but NOT aggregate3Value,
-  // so it cannot forward per-subcall value. A batch is therefore aggregated into ONE popup
-  // only when it carries no protocol fee (every collection <= 50 recipients -> getFee == 0).
-  // If any collection exceeds 50 recipients (fee > 0), we fall back to the proven direct
-  // per-collection sends so the fee can be attached as value — correctness over popup count.
+  // Popup 2 — ONE transfer call for every collection, fee or not.
+  // multisendMixedNFT (on the ArcSender contract) walks any mix of ERC-721 /
+  // ERC-1155 collections in a single tx and charges the protocol fee ONCE on
+  // the TOTAL recipient count, attached directly as msg.value. This sidesteps
+  // Arc's missing aggregate3Value: instead of batching N payable sub-calls
+  // through Multicall3From, the fee rides on this single direct call. So the
+  // fee-bearing (>50 / >100) multi-collection case now also collapses into
+  // exactly two popups, matching the fee-free flow.
   onPhase?.("sending");
-  const totalFee = groups.reduce(
-    (sum, [key, groupRows]) => sum + buildNftTransferCall(key, groupRows).value,
-    0n
-  );
-
-  if (totalFee === 0n) {
-    try {
-      const txHash = await sendAllTransfersBatch(groups, account, walletClient, publicClient);
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-      const status: NftRowStatus = receipt.status === "success" ? "success" : "failed";
-      rows.forEach((r) => onProgress(r.id, status, txHash));
-      txHashes.push(txHash);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      rows.forEach((r) => onProgress(r.id, "failed"));
-      throw new Error(`NFT batch transfer failed: ${msg.slice(0, 140)}`);
-    }
-  } else {
-    // Fee-bearing batch — direct per-collection sends (each attaches its own fee as value).
-    await sendGroupsDirect(groups, account, walletClient, publicClient, onProgress, txHashes);
+  try {
+    const txHash = await sendAllTransfersMixed(groups, account, walletClient, publicClient);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    const status: NftRowStatus = receipt.status === "success" ? "success" : "failed";
+    rows.forEach((r) => onProgress(r.id, status, txHash));
+    txHashes.push(txHash);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    rows.forEach((r) => onProgress(r.id, "failed"));
+    throw new Error(`NFT batch transfer failed: ${msg.slice(0, 140)}`);
   }
 
   return { txHashes, success: true };
@@ -657,87 +668,54 @@ async function approveAllCollectionsBatch(
   return txHash;
 }
 
-// Popup 2: one aggregate3 that batches every collection's transfer call into a single tx.
-//          aggregate3 routes each subcall through the CallFrom precompile (msg.sender preserved,
-//          so ArcSender pulls each NFT from the user). It does NOT forward value, so this path is
-//          only used for fee-free batches (every collection <= 50 recipients); the caller routes
-//          fee-bearing batches to the direct per-collection path instead.
-async function sendAllTransfersBatch(
+// Popup 2: ONE direct call to multisendMixedNFT on the ArcSender contract.
+//          Flattens every collection (any mix of ERC-721 / ERC-1155) into parallel
+//          arrays and sends them in a single tx. The protocol fee is computed ONCE
+//          on the TOTAL recipient count and attached as msg.value — so this single
+//          call carries the fee directly (no aggregate3Value needed). Each row is a
+//          safeTransferFrom(msg.sender, recipient, …) inside the contract, so the
+//          collections must already be approved to ArcSender (handled by popup 1).
+async function sendAllTransfersMixed(
   groups: [string, NftRecipientRow[]][],
   account: Address,
   walletClient: ReturnType<typeof createArcWalletClient>,
   _publicClient: ReturnType<typeof createArcPublicClient>
 ): Promise<`0x${string}`> {
-  const calls: { target: Address; allowFailure: boolean; callData: `0x${string}` }[] = [];
+  const standards:  number[]  = [];
+  const tokens:     Address[] = [];
+  const recipients: Address[] = [];
+  const tokenIds:   bigint[]  = [];
+  const amounts:    bigint[]  = [];
 
   for (const [key, groupRows] of groups) {
-    const { callData } = buildNftTransferCall(key, groupRows);
-    calls.push({ target: NFT_MULTISEND_ADDRESS, allowFailure: false, callData });
+    const [contractAddress, standard] = key.split("::") as [string, NftStandard];
+    const contract = contractAddress as Address;
+    const stdCode = standard === "ERC721" ? 0 : 1; // 0 = ERC721, 1 = ERC1155
+
+    for (const row of groupRows) {
+      standards.push(stdCode);
+      tokens.push(contract);
+      recipients.push(row.recipientAddress as Address);
+      tokenIds.push(BigInt(row.tokenId));
+      // amount is ignored for ERC-721 rows by the contract; pass 1 as a safe default
+      amounts.push(standard === "ERC721" ? 1n : BigInt(row.amount || "1"));
+    }
   }
 
+  // Fee tier is based on the TOTAL recipient count across all collections.
+  const fee = getNftMultisendFee(recipients.length);
+
   return walletClient.writeContract({
-    address: MULTICALL3FROM_ADDRESS,
-    abi: MULTICALL3FROM_ABI,
-    functionName: "aggregate3",
-    args: [calls],
+    address: NFT_MULTISEND_ADDRESS,
+    abi: NFT_MULTISEND_ABI,
+    functionName: "multisendMixedNFT",
+    args: [standards, tokens, recipients, tokenIds, amounts],
     account,
     chain: arcTestnet,
+    value: fee,
     maxFeePerGas: ARC_MAX_FEE_PER_GAS,
     maxPriorityFeePerGas: ARC_MAX_PRIORITY_FEE,
   });
-}
-
-// Encodes a single collection group into an ArcSender transfer call + its protocol fee.
-// Mirrors the exact standard/recipient selection used by the direct path.
-function buildNftTransferCall(
-  key: string,
-  groupRows: NftRecipientRow[]
-): { value: bigint; callData: `0x${string}` } {
-  const [contractAddress, standard] = key.split("::") as [string, NftStandard];
-  const contract = contractAddress as Address;
-
-  if (standard === "ERC721") {
-    const recipients = groupRows.map((r) => r.recipientAddress as Address);
-    const tokenIds   = groupRows.map((r) => BigInt(r.tokenId));
-    return {
-      value: getNftMultisendFee(groupRows.length),
-      callData: encodeFunctionData({
-        abi: NFT_MULTISEND_ABI,
-        functionName: "multisendERC721",
-        args: [contract, recipients, tokenIds],
-      }),
-    };
-  }
-
-  const byRecipient = groupBy1155ByRecipient(groupRows);
-  const recipientList = Object.keys(byRecipient);
-
-  if (recipientList.length === 1) {
-    const recipient = recipientList[0] as Address;
-    const recipientRows = byRecipient[recipientList[0]];
-    const ids     = recipientRows.map((r) => BigInt(r.tokenId));
-    const amounts = recipientRows.map((r) => BigInt(r.amount || "1"));
-    return {
-      value: getNftMultisendFee(recipientRows.length),
-      callData: encodeFunctionData({
-        abi: NFT_MULTISEND_ABI,
-        functionName: "batchToOneERC1155",
-        args: [contract, recipient, ids, amounts],
-      }),
-    };
-  }
-
-  const recipients = groupRows.map((r) => r.recipientAddress as Address);
-  const ids        = groupRows.map((r) => BigInt(r.tokenId));
-  const amounts    = groupRows.map((r) => BigInt(r.amount || "1"));
-  return {
-    value: getNftMultisendFee(groupRows.length),
-    callData: encodeFunctionData({
-      abi: NFT_MULTISEND_ABI,
-      functionName: "multisendERC1155",
-      args: [contract, recipients, ids, amounts],
-    }),
-  };
 }
 
 // ---- Helpers ----
