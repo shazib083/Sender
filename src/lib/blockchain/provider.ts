@@ -1,10 +1,9 @@
 // ============================================================
 // lib/blockchain/provider.ts
-// Multi-chain configuration & provider utilities.
+// Chain configuration & provider utilities.
 //
-// Arc Testnet is the DEFAULT chain. Sepolia is included as a secondary
-// network (placeholder for future multi-chain support). Add more chains by
-// defining them here, adding env vars, and appending to SUPPORTED_CHAIN_METAS.
+// Arc Testnet is the only supported chain. To add more chains later, define
+// them here, add their env vars, and append to SUPPORTED_CHAIN_METAS.
 // ============================================================
 
 import { type Chain } from "viem";
@@ -36,34 +35,8 @@ export const arcTestnet: Chain = {
   testnet: true,
 };
 
-// ---- Ethereum Sepolia Chain Definition (secondary / future) ----
-export const sepolia: Chain = {
-  id: Number(process.env.NEXT_PUBLIC_SEPOLIA_CHAIN_ID ?? 11155111),
-  name: "Sepolia",
-  nativeCurrency: {
-    name: "Sepolia Ether",
-    symbol: "ETH",
-    decimals: 18,
-  },
-  rpcUrls: {
-    default: {
-      http: [process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com"],
-    },
-    public: {
-      http: [process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com"],
-    },
-  },
-  blockExplorers: {
-    default: {
-      name: "Etherscan",
-      url: "https://sepolia.etherscan.io",
-    },
-  },
-  testnet: true,
-};
-
 // ---- Chain metadata for UI (label + icon shown in the network switcher) ----
-// Icons are served from the /public folder (Arc.png, Sepolia.png).
+// Icons are served from the /public folder (Arc.png).
 export interface ChainMeta {
   chain: Chain;
   label: string;
@@ -76,14 +49,8 @@ export const ARC_CHAIN_META: ChainMeta = {
   iconUrl: "/Arc.png",
 };
 
-export const SEPOLIA_CHAIN_META: ChainMeta = {
-  chain: sepolia,
-  label: "Sepolia",
-  iconUrl: "/Sepolia.png",
-};
-
-// Order here = order in the dropdown. Arc first (default).
-export const SUPPORTED_CHAIN_METAS: ChainMeta[] = [ARC_CHAIN_META, SEPOLIA_CHAIN_META];
+// Order here = order in the dropdown. Arc is the only supported network.
+export const SUPPORTED_CHAIN_METAS: ChainMeta[] = [ARC_CHAIN_META];
 
 // Arc is the default chain the wallet is forced onto when it first connects.
 export const DEFAULT_CHAIN: Chain = arcTestnet;

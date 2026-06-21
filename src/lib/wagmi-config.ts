@@ -1,18 +1,18 @@
 // ============================================================
 // lib/wagmi-config.ts
-// wagmi v2 + WalletConnect configuration (multi-chain)
+// wagmi v2 + WalletConnect configuration (Arc Testnet)
 // ============================================================
 
 import { http, createConfig } from "wagmi";
 import { metaMask, walletConnect, injected } from "wagmi/connectors";
-import { arcTestnet, sepolia } from "./blockchain/provider";
+import { arcTestnet } from "./blockchain/provider";
 
 const projectId =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "YOUR_WALLETCONNECT_PROJECT_ID";
 
 export const wagmiConfig = createConfig({
-  // Arc first => default chain. Sepolia added for future multi-chain support.
-  chains: [arcTestnet, sepolia],
+  // Arc Testnet is the only supported chain.
+  chains: [arcTestnet],
   connectors: [
     injected(),
     metaMask(),
@@ -28,7 +28,6 @@ export const wagmiConfig = createConfig({
   ],
   transports: {
     [arcTestnet.id]: http(arcTestnet.rpcUrls.default.http[0]),
-    [sepolia.id]:    http(sepolia.rpcUrls.default.http[0]),
   },
   ssr: true,
 });

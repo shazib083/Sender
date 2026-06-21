@@ -347,7 +347,8 @@ export async function validateNftBatch(
 // ---- Execute NFT batch via NftMultiSend contract ----
 export async function executeNftBatch(
   rows: NftRecipientRow[],
-  onProgress: (rowId: string, status: NftRowStatus, txHash?: string) => void
+  onProgress: (rowId: string, status: NftRowStatus, txHash?: string) => void,
+  onPhase?: (phase: "approving" | "sending") => void
 ): Promise<{ txHashes: `0x${string}`[]; success: boolean }> {
   const walletClient = createArcWalletClient();
   const publicClient = createArcPublicClient();
@@ -360,13 +361,18 @@ export async function executeNftBatch(
 
   // Group rows by contractAddress + standard
   const grouped = groupNftRows(rows);
+  const groups = Object.entries(grouped);
 
-  for (const [key, groupRows] of Object.entries(grouped)) {
+  // ── PHASE 1 — Popup: APPROVE ─────────────────────────────────────────────
+  // Ensure NftMultiSend is approved for every NFT contract in the batch.
+  // Mirrors the token flow's "Approve" popup so the UI can green-check this
+  // step before moving on to the transfer popup.
+  onPhase?.("approving");
+  for (const [key] of groups) {
     const [contractAddress, standard] = key.split("::") as [string, NftStandard];
     const contract = contractAddress as Address;
-
-    // ── Ensure NftMultiSend is approved for this NFT contract ──
     const abi = standard === "ERC721" ? ERC721_ABI : ERC1155_ABI;
+
     const isApproved = (await publicClient.readContract({
       address: contract,
       abi,
@@ -387,6 +393,14 @@ export async function executeNftBatch(
       });
       await publicClient.waitForTransactionReceipt({ hash: approvalTx });
     }
+  }
+
+  // ── PHASE 2 — Popup: TRANSFER ────────────────────────────────────────────
+  // Distribute the NFTs. Mirrors the token flow's "Send batch" popup.
+  onPhase?.("sending");
+  for (const [key, groupRows] of groups) {
+    const [contractAddress, standard] = key.split("::") as [string, NftStandard];
+    const contract = contractAddress as Address;
 
     if (standard === "ERC721") {
       // ── ERC-721: call multisendERC721 with all recipients + tokenIds ──

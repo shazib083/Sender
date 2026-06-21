@@ -3,7 +3,7 @@
 // Hook to drive the NFT batch send flow
 // ============================================================
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useAccount } from "wagmi";
 import toast from "react-hot-toast";
@@ -12,9 +12,21 @@ import { validateNftBatch, executeNftBatch } from "@/lib/blockchain/nft";
 import { getExplorerTxUrl } from "@/lib/blockchain/provider";
 import type { NftRowStatus } from "@/types/nft";
 
+// Two on-chain wallet popups per batch, in order — mirrors BatchPhase for tokens:
+//   "approving" — Popup 1: setApprovalForAll for the NFT collection(s)
+//   "sending"   — Popup 2: multisend transfer to all recipients
+export type NftPhase =
+  | "idle"
+  | "validating"
+  | "approving"
+  | "sending"
+  | "done"
+  | "failed";
+
 export function useNftExecution() {
   const { address } = useAccount();
   const { rows, setBatchStatus, setRowStatus } = useNftStore();
+  const [nftPhase, setNftPhase] = useState<NftPhase>("idle");
 
   const onProgress = useCallback(
     (rowId: string, status: NftRowStatus, txHash?: string) => {
@@ -34,6 +46,7 @@ export function useNftExecution() {
       if (validRows.length > 200) throw new Error("Maximum batch size is 200");
 
       // --- Validate ---
+      setNftPhase("validating");
       setBatchStatus("simulating");
       const validation = await validateNftBatch(validRows, address);
 
@@ -44,10 +57,15 @@ export function useNftExecution() {
         throw new Error("Validation failed. Check highlighted rows.");
       }
 
-      // --- Execute ---
+      // --- Execute: Popup 1 (approve) → Popup 2 (transfer) ---
+      setNftPhase("approving");
       setBatchStatus("executing");
-      const result = await executeNftBatch(validRows, onProgress);
+      const result = await executeNftBatch(validRows, onProgress, (phase) => {
+        setNftPhase(phase);
+        setBatchStatus("executing");
+      });
 
+      setNftPhase("done");
       setBatchStatus("done");
       return result;
     },
@@ -73,6 +91,7 @@ export function useNftExecution() {
     },
 
     onError: (err: Error) => {
+      setNftPhase("failed");
       setBatchStatus("failed");
       toast.error(err.message ?? "NFT batch execution failed");
     },
@@ -82,5 +101,6 @@ export function useNftExecution() {
     execute: mutation.mutate,
     isExecuting: mutation.isPending,
     error: mutation.error,
+    nftPhase,
   };
 }

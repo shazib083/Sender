@@ -10,8 +10,8 @@ import { cn } from "@/components/ui/utils";
 
 /**
  * Network switcher shown in the header (where the Faucet button used to be).
- * Lists every chain in SUPPORTED_CHAIN_METAS (Arc + Sepolia today) with its
- * icon on the LEFT of the name. Selecting a chain switches the wallet to it.
+ * Lists every chain in SUPPORTED_CHAIN_METAS (Arc only today) with its icon on
+ * the LEFT of the name. Selecting a chain switches the wallet to it.
  * Arc is forced as the default on first connect via useDefaultChain().
  */
 export function NetworkSwitchButton() {
