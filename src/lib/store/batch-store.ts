@@ -143,10 +143,19 @@ export const useBatchStore = create<BatchStore>()(
     {
       name: "rialo-batch-store",
       storage: createJSONStorage(safeStorage),
+      // NOTE: `rows` are intentionally NOT persisted. Recipients and their
+      // "Sent" statuses live only in memory, so they clear when the window is
+      // closed (per requirement). Only UI preferences are persisted.
       partialize: (state) => ({
-        rows: state.rows,
         selectedToken: state.selectedToken,
         theme: state.theme,
+      }),
+      // Never restore persisted recipient rows (defend against legacy storage
+      // that still contains them) — always start from the fresh default row.
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as object),
+        rows: current.rows,
       }),
       // Fires after Zustand reads localStorage — immediately applies
       // the correct theme class to <html> so it never flips back
@@ -195,26 +204,33 @@ export const useAddressBookStore = create<AddressBookStore>()(
   )
 );
 
-// ---- History Store ----
+// ---- History Store (IN-MEMORY ONLY) ----
+// Transaction history is read live from Blockscout on the History tab, so it is
+// NOT persisted to localStorage. This in-memory store stays only for the life
+// of the tab and is wiped automatically when the window/tab is closed.
+// Any legacy persisted history key is removed on load (see cleanup below).
 interface HistoryStore {
   records: TransactionRecord[];
   addRecord: (record: TransactionRecord) => void;
   clearHistory: () => void;
 }
 
-export const useHistoryStore = create<HistoryStore>()(
-  persist(
-    (set) => ({
-      records: [],
-      addRecord: (record) =>
-        set((s) => ({
-          records: [record, ...s.records].slice(0, 500),
-        })),
-      clearHistory: () => set({ records: [] }),
-    }),
-    {
-      name: "rialo-history",
-      storage: createJSONStorage(safeStorage),
-    }
-  )
-);
+export const useHistoryStore = create<HistoryStore>()((set) => ({
+  records: [],
+  addRecord: (record) =>
+    set((s) => ({
+      records: [record, ...s.records].slice(0, 500),
+    })),
+  clearHistory: () => set({ records: [] }),
+}));
+
+// ---- One-time cleanup of legacy locally-stored history ----
+// Older builds persisted batch history under "rialo-history". Remove it so no
+// transaction history lingers in the browser.
+if (typeof window !== "undefined") {
+  try {
+    window.localStorage.removeItem("rialo-history");
+  } catch {
+    /* ignore */
+  }
+}

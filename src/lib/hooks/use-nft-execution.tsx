@@ -1,6 +1,10 @@
 // ============================================================
 // lib/hooks/use-nft-execution.tsx
-// Hook to drive the NFT batch send flow
+// Hook to drive the NFT batch send flow.
+//
+// On success we expose `lastTxHash` so the NFT Summary panel can render an
+// inline "Batch sent! View tx" banner (between Execute and Export) instead of a
+// bottom-right toast. History is read live from Blockscout on the History tab.
 // ============================================================
 
 import { useCallback, useState } from "react";
@@ -9,7 +13,6 @@ import { useAccount } from "wagmi";
 import toast from "react-hot-toast";
 import { useNftStore } from "@/lib/store/nft-store";
 import { validateNftBatch, executeNftBatch } from "@/lib/blockchain/nft";
-import { getExplorerTxUrl } from "@/lib/blockchain/provider";
 import type { NftRowStatus } from "@/types/nft";
 
 // Two on-chain wallet popups per batch, in order — mirrors BatchPhase for tokens:
@@ -27,6 +30,7 @@ export function useNftExecution() {
   const { address } = useAccount();
   const { rows, setBatchStatus, setRowStatus } = useNftStore();
   const [nftPhase, setNftPhase] = useState<NftPhase>("idle");
+  const [lastTxHash, setLastTxHash] = useState<string | null>(null);
 
   const onProgress = useCallback(
     (rowId: string, status: NftRowStatus, txHash?: string) => {
@@ -38,6 +42,7 @@ export function useNftExecution() {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!address) throw new Error("Wallet not connected");
+      setLastTxHash(null);
 
       const validRows = rows.filter(
         (r) => r.contractAddress && r.tokenId && r.recipientAddress
@@ -65,29 +70,12 @@ export function useNftExecution() {
         setBatchStatus("executing");
       });
 
+      if (result.txHashes.length > 0) {
+        setLastTxHash(result.txHashes[result.txHashes.length - 1]);
+      }
       setNftPhase("done");
       setBatchStatus("done");
       return result;
-    },
-
-    onSuccess: (result) => {
-      const count = result.txHashes.length;
-      if (count === 1) {
-        const url = getExplorerTxUrl(result.txHashes[0]);
-        toast.success(
-          <span>
-            NFTs sent!{" "}
-            <a href={url} target="_blank" rel="noopener" className="underline">
-              View tx
-            </a>
-          </span>,
-          { duration: 8000 }
-        );
-      } else {
-        toast.success(`NFT batch complete! ${count} transaction(s) sent.`, {
-          duration: 8000,
-        });
-      }
     },
 
     onError: (err: Error) => {
@@ -102,5 +90,6 @@ export function useNftExecution() {
     isExecuting: mutation.isPending,
     error: mutation.error,
     nftPhase,
+    lastTxHash,
   };
 }

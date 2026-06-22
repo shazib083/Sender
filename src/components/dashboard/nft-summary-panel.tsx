@@ -1,8 +1,9 @@
 "use client";
 import {
   Zap, Download, ImageIcon,
-  CheckCheck, Send, CheckCircle2, Loader2,
+  CheckCheck, Send, CheckCircle2, Loader2, ExternalLink,
 } from "lucide-react";
+import { getExplorerTxUrl } from "@/lib/blockchain/provider";
 import { useAccount } from "wagmi";
 import { useNftStore } from "@/lib/store/nft-store";
 import { useNftExecution, type NftPhase } from "@/lib/hooks/use-nft-execution";
@@ -89,7 +90,7 @@ function NftButtonLabel({ phase, isExecuting }: {
 export function NftSummaryPanel() {
   const { rows, batchStatus, getSummary } = useNftStore();
   const { isConnected } = useAccount();
-  const { execute, isExecuting, nftPhase } = useNftExecution();
+  const { execute, isExecuting, nftPhase, lastTxHash } = useNftExecution();
   const [batchId] = useState(() => uuidv4());
 
   const summary = getSummary();
@@ -201,6 +202,20 @@ export function NftSummaryPanel() {
         >
           <NftButtonLabel phase={nftPhase} isExecuting={isExecuting} />
         </Button>
+
+        {/* Inline success banner — sits between Execute and Export */}
+        {nftPhase === "done" && lastTxHash && (
+          <a
+            href={getExplorerTxUrl(lastTxHash)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            Batch sent! View tx
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
 
         {/* Export report */}
         {hasSentRows && (

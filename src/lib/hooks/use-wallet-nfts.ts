@@ -9,6 +9,14 @@ import { useAccount } from "wagmi";
 
 const BLOCKSCOUT_BASE = "https://testnet.arcscan.app";
 
+// Safety bound on pagination. The flat /nft endpoint returns owned token
+// instances ~50 at a time, so the previous `page < 5` cap silently truncated
+// any wallet/collection holding more than ~250 instances (newer collections
+// fell past the cap and were left with only the 9-instance preview from the
+// /nft/collections endpoint). We now page through until next_page_params is
+// empty, keeping a high cap purely to guard against a runaway loop.
+const MAX_PAGES = 100;
+
 export interface NFTCollection {
   contractAddress: string;
   name: string;
@@ -69,7 +77,7 @@ async function fetchFromFlatNFTEndpoint(address: string, collectionsMap: Map<str
 
     nextPageParams = data.next_page_params;
     page++;
-  } while (nextPageParams && Object.keys(nextPageParams).length > 0 && page < 5);
+  } while (nextPageParams && Object.keys(nextPageParams).length > 0 && page < MAX_PAGES);
 }
 
 async function fetchFromCollectionsEndpoint(address: string, collectionsMap: Map<string, NFTCollection>) {
@@ -126,7 +134,7 @@ async function fetchFromCollectionsEndpoint(address: string, collectionsMap: Map
 
     nextPageParams = data.next_page_params;
     page++;
-  } while (nextPageParams && Object.keys(nextPageParams).length > 0 && page < 5);
+  } while (nextPageParams && Object.keys(nextPageParams).length > 0 && page < MAX_PAGES);
 }
 
 export async function fetchAllNFTCollections(address: string): Promise<NFTCollection[]> {

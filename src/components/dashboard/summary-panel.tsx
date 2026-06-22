@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import {
   Zap, Info, TrendingUp, Download,
   ShieldCheck, CheckCheck, Send,
-  CheckCircle2, Loader2,
+  CheckCircle2, Loader2, ExternalLink,
 } from "lucide-react";
+import { getExplorerTxUrl } from "@/lib/blockchain/provider";
 import { useAccount, usePublicClient } from "wagmi";
 import { useBatchStore } from "@/lib/store/batch-store";
 import { useBatchExecution, type BatchPhase } from "@/lib/hooks/use-batch-execution";
@@ -114,7 +115,7 @@ export function SummaryPanel() {
   const { rows, batchStatus, getSummary } = useBatchStore();
   const { isConnected } = useAccount();
   const publicClient = usePublicClient();
-  const { execute, isExecuting, batchPhase } = useBatchExecution();
+  const { execute, isExecuting, batchPhase, lastTxHash } = useBatchExecution();
   const { data: balances } = useTokenBalances();
   const [gasPrice, setGasPrice] = useState<bigint | null>(null);
   const [batchId] = useState(() => uuidv4());
@@ -283,6 +284,20 @@ export function SummaryPanel() {
         >
           <ButtonLabel phase={batchPhase} isExecuting={isExecuting} />
         </Button>
+
+        {/* Inline success banner — sits between Execute and Export */}
+        {batchPhase === "done" && lastTxHash && (
+          <a
+            href={getExplorerTxUrl(lastTxHash)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            Batch sent! View tx
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
 
         {/* Export */}
         {hasSentRows && (

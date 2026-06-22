@@ -100,15 +100,21 @@ export const NFT_MULTISEND_ABI = [
   },
 ] as const;
 
-const FREE_TIER_MAX = 50;
-const MID_TIER_MAX = 100;
-const FEE_MID = BigInt("50000000000000000");
-const FEE_HIGH = BigInt("100000000000000000");
+// ── Pay-per-wallet protocol fee (must match ArcSender.perAddressFee) ──────────
+// The old 1–50 / 51–100 / 101–200 tier model has been replaced by a flat
+// per-recipient charge. The contract now computes:
+//     getFee(count) = count * perAddressFee
+// where perAddressFee defaults to 0.001 USDC = 1e15 wei (18-decimal native
+// units) and is owner-adjustable on-chain via changeFee(). This mirrors the
+// token path (computeFeeWei = recipientCount * PER_ADDRESS_FEE_WEI).
+//
+// NOTE: keep PER_ADDRESS_FEE_WEI in sync with the contract's perAddressFee.
+// If you ever call changeFee() on-chain, update this constant to match (or
+// read perAddressFee() from the contract before sending).
+const PER_ADDRESS_FEE_WEI = 10n ** 15n; // 0.001 USDC per recipient
 
 function getNftMultisendFee(count: number): bigint {
-  if (count <= FREE_TIER_MAX) return BigInt(0);
-  if (count <= MID_TIER_MAX) return FEE_MID;
-  return FEE_HIGH;
+  return BigInt(count) * PER_ADDRESS_FEE_WEI;
 }
 
 // ---- ERC-165 interface IDs ----

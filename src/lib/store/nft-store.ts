@@ -55,8 +55,9 @@ interface NftStore {
   getSummary: () => NftBatchSummary;
 }
 
+// NFT recipient rows are kept IN MEMORY ONLY (not persisted), so the batch and
+// its "Sent" statuses clear automatically when the window/tab is closed.
 export const useNftStore = create<NftStore>()(
-  persist(
     (set, get) => ({
       rows: [emptyNftRow()],
       batchStatus: "draft",
@@ -112,11 +113,5 @@ export const useNftStore = create<NftStore>()(
 
         return { totalByContract, recipientCount };
       },
-    }),
-    {
-      name: "rialo-nft-store",
-      storage: createJSONStorage(safeStorage),
-      partialize: (state) => ({ rows: state.rows }),
-    }
-  )
+    })
 );

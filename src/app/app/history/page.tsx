@@ -1,29 +1,36 @@
 "use client";
 import { useState } from "react";
-import { useHistoryStore } from "@/lib/store/batch-store";
+import { useAccount } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/components/ui/utils";
 import { truncateAddress } from "@/lib/utils/validation";
 import { getExplorerTxUrl } from "@/lib/blockchain/provider";
-import { exportTransactionReport } from "@/lib/utils/csv";
-import { Trash2, ExternalLink, Download, History, Search } from "lucide-react";
+import { fetchOnChainHistory, type OnChainBatch } from "@/lib/blockchain/history";
+import { ExternalLink, History, Search, RefreshCw, Coins, ImageIcon } from "lucide-react";
 import { format } from "date-fns";
-import toast from "react-hot-toast";
-import type { TxStatus } from "@/types";
-
-const STATUS_VARIANT: Record<TxStatus, "success" | "error" | "warning"> = {
-  confirmed: "success",
-  failed: "error",
-  pending: "warning",
-};
 
 export default function HistoryPage() {
-  const { records, clearHistory } = useHistoryStore();
+  const { address, isConnected } = useAccount();
   const [search, setSearch] = useState("");
 
+  const {
+    data: records = [],
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["onchain-history", address],
+    queryFn: ({ signal }) => fetchOnChainHistory(address as string, { signal }),
+    enabled: Boolean(isConnected && address),
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
+  });
+
   const filtered = records.filter(
-    (r) =>
+    (r: OnChainBatch) =>
       !search ||
       r.txHash.toLowerCase().includes(search.toLowerCase()) ||
       r.from.toLowerCase().includes(search.toLowerCase())
@@ -39,19 +46,20 @@ export default function HistoryPage() {
             Transaction History
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            {records.length} batch{records.length !== 1 ? "es" : ""} executed
+            {isConnected
+              ? `${records.length} batch${records.length !== 1 ? "es" : ""} found on-chain (live from Blockscout)`
+              : "Connect your wallet to view your on-chain history"}
           </p>
         </div>
-        {records.length > 0 && (
+        {isConnected && (
           <Button
-            variant="danger"
+            variant="secondary"
             size="sm"
-            onClick={() => {
-              clearHistory();
-              toast.success("History cleared");
-            }}
+            onClick={() => refetch()}
+            disabled={isFetching}
           >
-            <Trash2 className="h-4 w-4" /> Clear History
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         )}
       </div>
@@ -69,43 +77,58 @@ export default function HistoryPage() {
         </div>
       )}
 
-      {/* Empty state */}
-      {records.length === 0 && (
+      {/* Not connected */}
+      {!isConnected && (
+        <EmptyState
+          title="Wallet not connected"
+          subtitle="Connect your wallet to load your batch history directly from the Arc explorer."
+        />
+      )}
+
+      {/* Loading */}
+      {isConnected && isLoading && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-surface-300 bg-surface-100 py-24 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface-200">
-            <History className="h-8 w-8 text-gray-500" />
-          </div>
-          <h3 className="text-lg font-semibold text-white">No transactions yet</h3>
-          <p className="mt-2 text-sm text-gray-500 max-w-sm">
-            Execute a batch transfer from the Dashboard to see it recorded here.
-          </p>
+          <RefreshCw className="h-8 w-8 text-brand-400 animate-spin" />
+          <p className="mt-4 text-sm text-gray-500">Loading history from Blockscout…</p>
         </div>
+      )}
+
+      {/* Error */}
+      {isConnected && isError && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 py-12 text-center text-sm text-red-300">
+          {(error as Error)?.message ?? "Failed to load history from Blockscout."}
+        </div>
+      )}
+
+      {/* Empty */}
+      {isConnected && !isLoading && !isError && records.length === 0 && (
+        <EmptyState
+          title="No transactions yet"
+          subtitle="Execute a batch transfer from the Dashboard — it will appear here, read live from the chain."
+        />
       )}
 
       {/* Records list */}
       {filtered.length > 0 && (
         <div className="rounded-2xl border border-surface-300 bg-surface-100 overflow-hidden">
-          <div className="hidden grid-cols-[1fr_100px_120px_100px_140px_80px] gap-4 border-b border-surface-300 px-5 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 sm:grid">
+          <div className="hidden grid-cols-[1fr_160px_100px_150px_70px] gap-4 border-b border-surface-300 px-5 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 sm:grid">
             <span>Transaction</span>
+            <span>Type</span>
             <span>Recipients</span>
-            <span>Tokens Sent</span>
-            <span>Network</span>
             <span>Date</span>
-            <span>Actions</span>
+            <span>View</span>
           </div>
 
           <div className="divide-y divide-surface-300">
             {filtered.map((record) => (
               <div
-                key={record.id}
-                className="grid gap-4 px-5 py-4 items-center text-sm sm:grid-cols-[1fr_100px_120px_100px_140px_80px] hover:bg-surface-200/50 transition-colors"
+                key={`${record.txHash}-${record.standard}`}
+                className="grid gap-4 px-5 py-4 items-center text-sm sm:grid-cols-[1fr_160px_100px_150px_70px] hover:bg-surface-200/50 transition-colors"
               >
                 {/* Tx Hash */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
-                    <Badge variant={STATUS_VARIANT[record.status]}>
-                      {record.status}
-                    </Badge>
+                    <Badge variant="success">confirmed</Badge>
                     <a
                       href={getExplorerTxUrl(record.txHash)}
                       target="_blank"
@@ -121,20 +144,18 @@ export default function HistoryPage() {
                   </p>
                 </div>
 
-                {/* Count */}
-                <span className="text-gray-300">{record.recipientCount}</span>
-
-                {/* Token totals */}
-                <div className="flex flex-col gap-0.5">
-                  {Object.entries(record.totalByToken).map(([sym, amt]) => (
-                    <span key={sym} className="text-xs text-gray-300 tabular-nums">
-                      {Number(amt).toLocaleString(undefined, { maximumFractionDigits: 6 })} {sym}
-                    </span>
-                  ))}
+                {/* Type / standard */}
+                <div className="flex items-center gap-1.5">
+                  {record.kind === "Token" ? (
+                    <Coins className="h-3.5 w-3.5 text-brand-400" />
+                  ) : (
+                    <ImageIcon className="h-3.5 w-3.5 text-brand-400" />
+                  )}
+                  <span className="text-xs text-gray-300">{record.standard}</span>
                 </div>
 
-                {/* Network */}
-                <span className="text-xs text-gray-500">{record.networkName}</span>
+                {/* Count */}
+                <span className="text-gray-300">{record.recipientCount}</span>
 
                 {/* Date */}
                 <span className="text-xs text-gray-500">
@@ -159,11 +180,23 @@ export default function HistoryPage() {
         </div>
       )}
 
-      {filtered.length === 0 && search && (
+      {filtered.length === 0 && search && records.length > 0 && (
         <div className="rounded-2xl border border-surface-300 bg-surface-100 py-12 text-center text-sm text-gray-500">
           No results for &ldquo;{search}&rdquo;
         </div>
       )}
+    </div>
+  );
+}
+
+function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-surface-300 bg-surface-100 py-24 text-center">
+      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface-200">
+        <History className="h-8 w-8 text-gray-500" />
+      </div>
+      <h3 className="text-lg font-semibold text-white">{title}</h3>
+      <p className="mt-2 text-sm text-gray-500 max-w-sm">{subtitle}</p>
     </div>
   );
 }

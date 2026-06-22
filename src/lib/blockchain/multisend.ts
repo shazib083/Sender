@@ -56,23 +56,23 @@ import {
 const ARC_MAX_FEE_PER_GAS  = parseGwei("200");
 const ARC_MAX_PRIORITY_FEE = parseGwei("1");
 
-// ── Fee constants (must match contract) ───────────────────────────────
-// Arc native USDC: msg.value in 18-decimal wei
-const FREE_TIER_MAX = 50;
-const MID_TIER_MAX  = 100;
-const FEE_MID  = 5n * 10n ** 16n; // 0.05 USDC in wei
-const FEE_HIGH = 1n * 10n ** 17n; // 0.10 USDC in wei
+// ── Fee constant (must match contract ArcSender.perAddressFee) ──────────
+// PAY-PER-WALLET: flat 0.001 USDC per recipient, charged in native USDC.
+// Arc native USDC uses 18-decimal wei for msg.value:
+//   0.001 USDC = 1_000 (6-dec units) * 1e12 = 1e15 wei.
+export const PER_ADDRESS_FEE_WEI = 10n ** 15n; // 0.001 USDC
 
+// Total fee = recipientCount * 0.001 USDC (in 18-decimal native wei).
 export function computeFeeWei(recipientCount: number): bigint {
-  if (recipientCount <= FREE_TIER_MAX) return 0n;
-  if (recipientCount <= MID_TIER_MAX)  return FEE_MID;
-  return FEE_HIGH;
+  return BigInt(recipientCount) * PER_ADDRESS_FEE_WEI;
 }
 
+// Human label for the UI, e.g. "0.006 USDC" for 6 recipients.
 export function getFeeLabel(recipientCount: number): string {
-  if (recipientCount <= FREE_TIER_MAX) return "Free";
-  if (recipientCount <= MID_TIER_MAX)  return "0.05 USDC";
-  return "0.10 USDC";
+  const fee6 = BigInt(recipientCount) * 1000n; // 6-decimal USDC units (0.001 * 1e6)
+  const whole = fee6 / 1_000_000n;
+  const frac = (fee6 % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac} USDC` : `${whole} USDC`;
 }
 
 // ── Addresses from env (changeable without code edits) ────────────────
@@ -123,10 +123,10 @@ export const MULTISEND_ABI = [
     outputs: [],
   },
   {
-    // Read fee from contract for UI display
+    // Read fee from contract for UI display (pay-per-wallet = count * perAddressFee)
     name: "getFee",
     type: "function",
-    stateMutability: "pure",
+    stateMutability: "view",
     inputs: [{ name: "count", type: "uint256" }],
     outputs: [{ name: "", type: "uint256" }],
   },
